@@ -31,7 +31,7 @@ When downloading PowerShell scripts directly from GitHub, Windows tags them with
 
 ```powershell
 Unblock-File -Path ".\manage-scheduled-tasks.ps1"
-
+```
 
 2. Execution Policy on Windows ServerIf your Windows Server or workstation enforces RemoteSigned or Restricted execution policies, run the script by bypassing the execution policy for the current scope or process:PowerShellpowershell.exe -ExecutionPolicy Bypass -File .\manage-scheduled-tasks.ps1 -Interactive
 Or set the execution scope in your current PowerShell session:PowerShellSet-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
@@ -47,3 +47,6 @@ Parameters ReferenceParameterAliasTypeDefaultDescription-Interactive-iSwitchFals
 3. Inspect System TasksClear the exclusion mask to list all scheduled tasks, including native Microsoft components:PowerShell.\manage-scheduled-tasks.ps1 -ListOnly -ExcludePathPattern ""
 4. Display Help ScreenPowerShell.\manage-scheduled-tasks.ps1 -Help
 Interactive Console ControlsWhen operating inside -Interactive mode, use the following commands:CommandActionExample<ID>Disables a single task by its list ID2<ID1>, <ID2>, ...Disables multiple tasks in a batch1, 3, 5e <ID>Re-enables a task by its IDe 2e <ID1>, <ID2>Re-enables multiple tasks in a batche 1, 4rRefreshes the task list and execution statesrqExits the interactive manager safelyq
+
+### Interactive run 
+![Help Output](assets/screenshot-interactive.jpg)
