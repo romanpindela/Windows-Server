@@ -49,7 +49,7 @@ Parameters ReferenceParameterAliasTypeDefaultDescription-Interactive-iSwitchFals
 Interactive Console ControlsWhen operating inside -Interactive mode, use the following commands:CommandActionExample<ID>Disables a single task by its list ID2<ID1>, <ID2>, ...Disables multiple tasks in a batch1, 3, 5e <ID>Re-enables a task by its IDe 2e <ID1>, <ID2>Re-enables multiple tasks in a batche 1, 4rRefreshes the task list and execution statesrqExits the interactive manager safelyq
 
 ### Interactive Run - Listed Tasks
-![Help Output](assets/Interactive Run - Listed Tasks.jpg)
+![Help Output](assets/Interactive_Run_-_Listed_Tasks.jpg)
 
 ### Interactive Run - Menu 
-![Help Output](assets/Interactive Run - Menu.jpg)
+![Help Output](assets/Interactive_Run_-_Menu.jpg)
