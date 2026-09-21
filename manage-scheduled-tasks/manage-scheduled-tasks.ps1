@@ -553,7 +553,7 @@ function Start-InteractiveSession {
 
                 if ($target) {
                     try {
-                        Enable-ScheduledTask -TaskName $target.FullTaskName -TaskPath$target.TaskPath -ErrorAction Stop | Out-Null;
+                        Enable-ScheduledTask -TaskName $target.FullTaskName -TaskPath $target.TaskPath -ErrorAction Stop | Out-Null;
                         Write-Host "Wlaczono: [$($target.Id)] $($target.FullTaskName)" -ForegroundColor Green;
                     } catch {
                         Write-Host "Blad podczas wlaczania [$($target.FullTaskName)]:$_" -ForegroundColor Red;
@@ -587,7 +587,7 @@ function Start-InteractiveSession {
 
             if ($target) {
                 try {
-                    Disable-ScheduledTask -TaskName $target.FullTaskName -TaskPath$target.TaskPath -ErrorAction Stop | Out-Null;
+                    Disable-ScheduledTask -TaskName $target.FullTaskName -TaskPath $target.TaskPath -ErrorAction Stop | Out-Null;
                     Write-Host "Wylaczono: [$($target.Id)] $($target.FullTaskName)" -ForegroundColor Green;
                 } catch {
                     Write-Host "Blad podczas wylaczania [$($target.FullTaskName)]:$_" -ForegroundColor Red;
