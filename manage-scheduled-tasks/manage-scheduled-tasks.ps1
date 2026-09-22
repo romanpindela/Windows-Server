@@ -11,6 +11,8 @@
     Features:
       - Splatting-based parameter passing (immune to whitespace/token concatenation bugs)
       - Direct substring search [s <fraza>] across TaskName, TaskPath, and Command
+      - Toggle/enable/disable tasks by numeric ID or directly by TaskName / wildcard pattern
+      - CLI parameters to enable/disable tasks by name (-DisableByName / -EnableByName)
       - Auto-bypass of path exclusion when actively searching
       - Full-list display (no pagination cutoff)
       - Detailed trigger parser (Daily@HH:mm, Weekly, Boot, Logon, Event, Idle, OnDemand)
@@ -23,6 +25,10 @@
     Launches an interactive console menu with search and live filtering.
 .PARAMETER ListOnly
     Lists matching scheduled tasks and exits.
+.PARAMETER DisableByName
+    Disables tasks matching the specified name or wildcard pattern and exits.
+.PARAMETER EnableByName
+    Enables tasks matching the specified name or wildcard pattern and exits.
 .PARAMETER StateFilter
     Filters tasks by status ('All', 'Enabled', 'Disabled'). Defaults to 'Enabled'.
 .PARAMETER TriggerFilter
@@ -39,7 +45,7 @@
     Author  : Roman Pindela
     Email   : roman.pindela@gmail.com
     GitHub  : https://github.com/romanpindela
-    Version : 2.7.1
+    Version : 2.8.1
 #>
 [CmdletBinding()]
 param (
@@ -48,6 +54,10 @@ param (
 
     [Alias('l')]
     [switch]$ListOnly,
+
+    [string]$DisableByName,
+
+    [string]$EnableByName,
 
     [ValidateSet('All', 'Enabled', 'Disabled')]
     [string]$StateFilter = 'Enabled',
@@ -65,14 +75,15 @@ param (
 
 function Show-ScriptHelp {
     Write-Host "================================================================================" -ForegroundColor Cyan;
-    Write-Host " manage-scheduled-tasks.ps1 - Version 2.7.1" -ForegroundColor Cyan;
+    Write-Host " manage-scheduled-tasks.ps1 - Version 2.8.1" -ForegroundColor Cyan;
     Write-Host " Author  : Roman Pindela (roman.pindela@gmail.com)" -ForegroundColor Cyan;
     Write-Host " GitHub  : https://github.com/romanpindela" -ForegroundColor Cyan;
     Write-Host "================================================================================" -ForegroundColor Cyan;
     Write-Host "";
     Write-Host "OPIS:";
     Write-Host "  Zarzadzanie zadaniami harmonogramu Windows Task Scheduler z podzialem na typy";
-    Write-Host "  (System / User / App), filtrowaniem wyzwalaczy, bezposrednim wyszukiwaniem fraza i widokiem pelnej listy.";
+    Write-Host "  (System / User / App), filtrowaniem wyzwalaczy, bezposrednim wyszukiwaniem fraza,";
+    Write-Host "  wylaczaniem/wlaczaniem po ID lub po nazwie oraz widokiem pelnej listy.";
     Write-Host "";
     Write-Host "SKLADNIA & PARAMETRY:";
     Write-Host "  .\manage-scheduled-tasks.ps1 -Interactive";
@@ -80,6 +91,12 @@ function Show-ScriptHelp {
     Write-Host "";
     Write-Host "  .\manage-scheduled-tasks.ps1 -ListOnly [-StateFilter <All|Enabled|Disabled>] [-NamePattern '*fraza*']";
     Write-Host "      Wypisuje przefiltrowane zadania do konsoli i konczy dzialanie.";
+    Write-Host "";
+    Write-Host "  .\manage-scheduled-tasks.ps1 -DisableByName '*Printer*'";
+    Write-Host "      Wyszukuje i wylacza zadania pasujace do wzorca nazwy, po czym konczy dzialanie.";
+    Write-Host "";
+    Write-Host "  .\manage-scheduled-tasks.ps1 -EnableByName '*Printer*'";
+    Write-Host "      Wyszukuje i wlacza zadania pasujace do wzorca nazwy, po czym konczy dzialanie.";
     Write-Host "";
     Write-Host "  .\manage-scheduled-tasks.ps1 -Help";
     Write-Host "      Wyswietla te pomoc.";
@@ -245,12 +262,10 @@ function Get-FilteredTasks {
                 continue;
             };
         } else {
-            # Jesli NIE ma aktywnego wyszukiwania, respektujemy wykluczenie sciezki
             if (-not [string]::IsNullOrEmpty($ExcludePath) -and ($task.TaskPath -like$ExcludePath)) {
                 continue;
             };
 
-            # Filtr stanu (Enabled / Disabled) respektujemy tylko gdy nie szukamy konkretnej frazy
             $rawStateStr = "$($task.State)";
             if ($CurrentStateFilter -ieq 'Disabled') {
                 if ($rawStateStr -ne 'Disabled') { continue; };
@@ -402,6 +417,53 @@ function Render-TwoLineTable {
     };
 };
 
+function Invoke-TaskActionByName {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Pattern,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("Enable", "Disable")]
+        [string]$Action
+    );
+
+    $cleanPattern = $Pattern.Trim();
+    if ([string]::IsNullOrWhiteSpace($cleanPattern)) {
+        Write-Host "Nie podano nazwy ani wzorca zadania." -ForegroundColor DarkYellow;
+        return;
+    };
+
+    $filter = if ($cleanPattern -match "[\*\?]") { $cleanPattern } else { "*$cleanPattern*" };
+
+    try {
+        $allTasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue);
+        $matching = @($allTasks | Where-Object { $_.TaskName -like $filter });
+    } catch {
+        $matching = @();
+    };
+
+    if ($matching.Count -eq 0) {
+        Write-Host "Nie znaleziono zadan pasujacych do wzorca: '$filter'" -ForegroundColor DarkYellow;
+        return;
+    };
+
+    Write-Host "Znaleziono $($matching.Count) zadan pasujacych do '$filter':" -ForegroundColor Cyan;
+    foreach ($t in $matching) {
+        try {
+            if ($Action -eq "Disable") {
+                Disable-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -ErrorAction Stop | Out-Null;
+                Write-Host "  [-] Wylaczono : $($t.TaskPath)$($t.TaskName)" -ForegroundColor Yellow;
+            } else {
+                Enable-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -ErrorAction Stop | Out-Null;
+                Write-Host "  [+] Wlaczono  : $($t.TaskPath)$($t.TaskName)" -ForegroundColor Green;
+            };
+        } catch {
+            Write-Host "  [!] Blad dla $($t.TaskName): $_" -ForegroundColor Red;
+        };
+    };
+};
+
+
 function Start-InteractiveSession {
     param (
         [string]$IncludePath,
@@ -426,7 +488,6 @@ function Start-InteractiveSession {
     while ($true) {
         Clear-Host;
         
-        # Bezpieczne przekazanie parametrow (splatting uniemozliwia sklejanie ciagow)
         $filterParams = @{
             IncludePath          = $IncludePath
             ExcludePath          = $currentExclude
@@ -453,15 +514,18 @@ function Start-InteractiveSession {
         Write-Host ("  " + ("=" * 105)) -ForegroundColor DarkCyan;
 
         Write-Host "AKCJE I DOSTEPNE FILTRY:" -ForegroundColor Yellow;
-        Write-Host "  Zarzadzanie zadaniami :" -ForegroundColor DarkGray;
-        Write-Host "    [1..n]     Wylacz zadanie po ID (np. 1 lub 1, 3, 5)";
-        Write-Host "    [e <id>]   Wlacz zadanie po ID (np. e 3 lub e 1, 4)";
+        Write-Host "  Zarzadzanie zadaniami po ID :" -ForegroundColor DarkGray;
+        Write-Host "    [1..n]       Wylacz zadanie po ID (np. 1 lub 1, 3, 5)";
+        Write-Host "    [e <id>]     Wlacz zadanie po ID (np. e 3 lub e 1, 4)";
+        Write-Host "  Zarzadzanie po NAZWIE :" -ForegroundColor DarkGray;
+        Write-Host "    [d <nazwa>]  Wylacz zadanie po nazwie lub wzorcu (np. 'd *printer*', 'd Lenovo*')";
+        Write-Host "    [en <nazwa>] Wlacz zadanie po nazwie lub wzorcu (np. 'en *printer*')";
         Write-Host "  Wyszukiwanie fraza :" -ForegroundColor DarkGray;
-        Write-Host "    [s <tekst>] Szukaj w nazwie, sciezce i poleceniu (np. 's nvidia', 's office', 's *' aby wyczyscic)";
+        Write-Host "    [s <tekst>]  Szukaj w nazwie, sciezce i poleceniu (np. 's nvidia', 's office', 's *' aby wyczyscic)";
         Write-Host "  Filtry przelaczane w locie :" -ForegroundColor DarkGray;
-        Write-Host "    [m]         Przelacz filtr: Tylko wlasne (User/App) <-> Wszystkie (+Systemowe)";
-        Write-Host "    [f <a|e|d>] Filtr Statusu:  [f a] All | [f e] Enabled (Wlaczone) | [f d] Disabled (Wylaczone)";
-        Write-Host "    [t <mode>]  Filtr Triggera: [t a] All | [t b] Boot | [t l] Logon | [t t] Time | [t e] Event | [t o] OnDemand";
+        Write-Host "    [m]          Przelacz filtr: Tylko wlasne (User/App) <-> Wszystkie (+Systemowe)";
+        Write-Host "    [f <a|e|d>]  Filtr Statusu:  [f a] All | [f e] Enabled (Wlaczone) | [f d] Disabled (Wylaczone)";
+        Write-Host "    [t <mode>]   Filtr Triggera: [t a] All | [t b] Boot | [t l] Logon | [t t] Time | [t e] Event | [t o] OnDemand";
         Write-Host "  Sterowanie :" -ForegroundColor DarkGray;
         Write-Host "    [r] Odswiez liste  |  [q] Wyjdz z programu";
         Write-Host "";
@@ -532,7 +596,23 @@ function Start-InteractiveSession {
             if ($tflag -eq 'o') {$currentTrigger = 'OnDemand'; continue; };
         };
 
-        # 5. WLACZANIE ZADANIA: e <id>
+        # 5. WYLACZANIE PO NAZWIE: d <nazwa_lub_wzorzec>
+        if ($cmdToken -eq 'd' -and$parts.Count -gt 1) {
+            $nameTarget =$parts[1].Trim();
+            Invoke-TaskActionByName -Pattern $nameTarget -Action 'Disable';
+            Start-Sleep -Seconds 2;
+            continue;
+        };
+
+        # 6. WLACZANIE PO NAZWIE: en <nazwa_lub_wzorzec>
+        if ($cmdToken -eq 'en' -and$parts.Count -gt 1) {
+            $nameTarget =$parts[1].Trim();
+            Invoke-TaskActionByName -Pattern $nameTarget -Action 'Enable';
+            Start-Sleep -Seconds 2;
+            continue;
+        };
+
+        # 7. WLACZANIE ZADANIA PO ID: e <id>
         if ($cmdToken -eq 'e' -and$parts.Count -gt 1) {
             $subStr =$parts[1];
             $tokens = @($subStr -split '[,;\s]+' | Where-Object { $_ -match '^\d+$' });
@@ -553,7 +633,7 @@ function Start-InteractiveSession {
 
                 if ($target) {
                     try {
-                        Enable-ScheduledTask -TaskName $target.FullTaskName -TaskPath $target.TaskPath -ErrorAction Stop | Out-Null;
+                        Enable-ScheduledTask -TaskName $target.FullTaskName -TaskPath$target.TaskPath -ErrorAction Stop | Out-Null;
                         Write-Host "Wlaczono: [$($target.Id)] $($target.FullTaskName)" -ForegroundColor Green;
                     } catch {
                         Write-Host "Blad podczas wlaczania [$($target.FullTaskName)]:$_" -ForegroundColor Red;
@@ -566,13 +646,13 @@ function Start-InteractiveSession {
             continue;
         };
 
-        # 6. WYLACZANIE ZADANIA: numery ID (np. 1 lub 1, 3, 5)
+        # 8. WYLACZANIE ZADANIA PO ID: numery ID (np. 1 lub 1, 3, 5)
         $allTokens = @($rawInput -split '[,;\s]+');
         $invalidTokens = @($allTokens | Where-Object { $_ -notmatch '^\d+$' });
 
         if ($invalidTokens.Count -gt 0) {
             $joinedErr =$invalidTokens -join ', ';
-            Write-Host "Nierozpoznane polecenie: '$joinedErr'. Wpisz 's <fraza>', 'f <a|e|d>', 't <mode>', 'm', 'e <id>' lub numery ID." -ForegroundColor Red;
+            Write-Host "Nierozpoznane polecenie: '$joinedErr'. Wpisz numery ID, 'd <nazwa>', 'en <nazwa>', 'e <id>', 's <fraza>', 'f <a|e|d>', 't <mode>' lub 'm'." -ForegroundColor Red;
             Start-Sleep -Seconds 2;
             continue;
         };
@@ -587,7 +667,7 @@ function Start-InteractiveSession {
 
             if ($target) {
                 try {
-                    Disable-ScheduledTask -TaskName $target.FullTaskName -TaskPath $target.TaskPath -ErrorAction Stop | Out-Null;
+                    Disable-ScheduledTask -TaskName $target.FullTaskName -TaskPath$target.TaskPath -ErrorAction Stop | Out-Null;
                     Write-Host "Wylaczono: [$($target.Id)] $($target.FullTaskName)" -ForegroundColor Green;
                 } catch {
                     Write-Host "Blad podczas wylaczania [$($target.FullTaskName)]:$_" -ForegroundColor Red;
@@ -611,6 +691,18 @@ if ($Help -or ($PSBoundParameters.Count -eq 0)) {
 };
 
 Assert-AdministratorPrivileges;
+
+# Akcja z CLI: Wylaczenie po nazwie
+if ($DisableByName) {
+    Invoke-TaskActionByName -Pattern $DisableByName -Action 'Disable';
+    Exit 0;
+};
+
+# Akcja z CLI: Wlaczenie po nazwie
+if ($EnableByName) {
+    Invoke-TaskActionByName -Pattern $EnableByName -Action 'Enable';
+    Exit 0;
+};
 
 if ($ListOnly) {$cliParams = @{
         IncludePath          = $IncludePathPattern
