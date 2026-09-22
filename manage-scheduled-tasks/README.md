@@ -81,4 +81,4 @@ powershell.exe -ExecutionPolicy Bypass -File .\manage-scheduled-tasks.ps1 -Inter
 ![Help Output](assets/Interactive_run_-_Filtered_Tasks_-_System_Tasks.jpg)
 
 ### Enable and Disable tasks by name
-![Help Output](assets/Enable_and_Disable_tasks_by_name.jpg.jpg)
+![Help Output](assets/Enable_and_Disable_tasks_by_name.jpg)
