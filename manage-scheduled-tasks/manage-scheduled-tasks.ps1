@@ -1,16 +1,16 @@
-﻿<#
+<#
 .SYNOPSIS
     Interactive and automated management tool for Windows Scheduled Tasks.
 .DESCRIPTION
     Lists, inspects, and modifies (enables/disables) Windows Scheduled Tasks.
     Formatted with a structured multi-line view:
-      Line 1: Nr | Status | Typ | Trigger | Nazwa zadania | Next run | Last run
+      Line 1: No | Status | Type | Trigger | Task Name | Next Run | Last Run
       Line 2: Command
       Line 3: Description
       Line 4: Separator
     Features:
       - Splatting-based parameter passing (immune to whitespace/token concatenation bugs)
-      - Direct substring search [s <fraza>] across TaskName, TaskPath, and Command
+      - Direct substring search [s <query>] across TaskName, TaskPath, and Command
       - Toggle/enable/disable tasks by numeric ID or directly by TaskName / wildcard pattern
       - CLI parameters to enable/disable tasks by name (-DisableByName / -EnableByName)
       - Auto-bypass of path exclusion when actively searching
@@ -80,26 +80,26 @@ function Show-ScriptHelp {
     Write-Host " GitHub  : https://github.com/romanpindela" -ForegroundColor Cyan;
     Write-Host "================================================================================" -ForegroundColor Cyan;
     Write-Host "";
-    Write-Host "OPIS:";
-    Write-Host "  Zarzadzanie zadaniami harmonogramu Windows Task Scheduler z podzialem na typy";
-    Write-Host "  (System / User / App), filtrowaniem wyzwalaczy, bezposrednim wyszukiwaniem fraza,";
-    Write-Host "  wylaczaniem/wlaczaniem po ID lub po nazwie oraz widokiem pelnej listy.";
+    Write-Host "DESCRIPTION:";
+    Write-Host "  Manage Windows Task Scheduler tasks categorized by type";
+    Write-Host "  (System / User / App), trigger filtering, direct search queries,";
+    Write-Host "  enabling/disabling by ID or name, and full list view.";
     Write-Host "";
-    Write-Host "SKLADNIA & PARAMETRY:";
+    Write-Host "SYNTAX & PARAMETERS:";
     Write-Host "  .\manage-scheduled-tasks.ps1 -Interactive";
-    Write-Host "      Uruchamia interaktywna konsole CLI.";
+    Write-Host "      Launches interactive CLI console.";
     Write-Host "";
-    Write-Host "  .\manage-scheduled-tasks.ps1 -ListOnly [-StateFilter <All|Enabled|Disabled>] [-NamePattern '*fraza*']";
-    Write-Host "      Wypisuje przefiltrowane zadania do konsoli i konczy dzialanie.";
+    Write-Host "  .\manage-scheduled-tasks.ps1 -ListOnly [-StateFilter <All|Enabled|Disabled>] [-NamePattern '*query*']";
+    Write-Host "      Outputs filtered tasks to console and exits.";
     Write-Host "";
     Write-Host "  .\manage-scheduled-tasks.ps1 -DisableByName '*Printer*'";
-    Write-Host "      Wyszukuje i wylacza zadania pasujace do wzorca nazwy, po czym konczy dzialanie.";
+    Write-Host "      Finds and disables tasks matching name pattern and exits.";
     Write-Host "";
     Write-Host "  .\manage-scheduled-tasks.ps1 -EnableByName '*Printer*'";
-    Write-Host "      Wyszukuje i wlacza zadania pasujace do wzorca nazwy, po czym konczy dzialanie.";
+    Write-Host "      Finds and enables tasks matching name pattern and exits.";
     Write-Host "";
     Write-Host "  .\manage-scheduled-tasks.ps1 -Help";
-    Write-Host "      Wyswietla te pomoc.";
+    Write-Host "      Displays this help menu.";
     Write-Host "================================================================================" -ForegroundColor Cyan;
 };
 
@@ -111,7 +111,7 @@ function Assert-AdministratorPrivileges {
     $isAdmin = $principal.IsInRole($adminSid);
 
     if (-not $isAdmin) {
-        Write-Host "Brak uprawnien administratora. Ponowne uruchamianie z podniesionymi uprawnieniami..." -ForegroundColor Yellow;
+        Write-Host "Administrator privileges required. Relaunching with elevated privileges..." -ForegroundColor Yellow;
         $boundArgs = @();
         $keys = @($PSBoundParameters.Keys);
         for ($i = 0; $i -lt $keys.Count; $i++) {
@@ -223,15 +223,16 @@ function Get-FilteredTasks {
     try {
         $allTasks = @(Get-ScheduledTask -ErrorAction Stop);
     } catch {
-        Write-Error "Blad odpytywania harmonogramu zadan: $_";
+        Write-Error "Error querying Task Scheduler: $_";
         return @();
     };
 
     $tempList = New-Object System.Collections.Generic.List[PSCustomObject];
 
-    for ($idx = 0; $idx -lt$allTasks.Count; $idx++) {$task = $allTasks[$idx];
+    for ($idx = 0; $idx -lt $allTasks.Count; $idx++) {
+        $task = $allTasks[$idx];
 
-        # 1. Sprawdzenie sciezki Include
+        # 1. Verify Include path
         if ($IncludePath -ne '*' -and $task.TaskPath -notlike$IncludePath) {
             continue;
         };
@@ -301,17 +302,17 @@ function Get-FilteredTasks {
             $lastRun =$info.LastRunTime.ToString("yyyy-MM-dd HH:mm");
         };
 
-        # 6. Opis zadania
+        # 6. Task description
         $desc = "-";
         if (-not [string]::IsNullOrWhiteSpace($task.Description)) {
             $desc = ($task.Description -replace "[\r\n]+", " ").Trim();
         };
 
-        # 7. Klasyfikacja typu (System / User / App)
+        # 7. Type classification (System / User / App)
         $taskType = "App";
         if ($task.TaskPath -like "*\Microsoft\*" -or $task.Author -like "*Microsoft*") {
             $taskType = "System";
-        } elseif ($task.TaskPath -match 'S-1-5-21-' -or $task.TaskName -match 'S-1-5-21-' -or$actionDisplay -like "*\Users\*") {
+        } elseif ($task.TaskPath -match 'S-1-5-21-' -or $task.TaskName -match 'S-1-5-21-' -or $actionDisplay -like "*\Users\*") {
             $taskType = "User";
         };
 
@@ -333,8 +334,8 @@ function Get-FilteredTasks {
         });
     };
 
-    # Sortowanie chronologiczne wg daty nastepnego uruchomienia
-    $sorted =$tempList | Sort-Object -Property @{
+    # Chronological sort by next run date
+    $sorted = $tempList | Sort-Object -Property @{
         Expression = { if ($_.RawState -ieq 'Disabled') { 1 } else { 0 } }
     }, @{
         Expression = { $_.RawNextDate }
@@ -342,9 +343,9 @@ function Get-FilteredTasks {
         Expression = { $_.TaskName }
     };
 
-    $finalList = New-Object System.Collections.Generic.List[PSCustomObject];$counter = 1;
-    foreach ($item in $sorted) {$item | Add-Member -MemberType NoteProperty -Name "Id" -Value $counter -Force;
-        $finalList.Add($item);$counter++;
+    $finalList = New-Object System.Collections.Generic.List[PSCustomObject]; $counter = 1;
+    foreach ($item in $sorted) { $item | Add-Member -MemberType NoteProperty -Name "Id" -Value $counter -Force;
+        $finalList.Add($item); $counter++;
     };
 
     return $finalList;
@@ -357,12 +358,12 @@ function Render-TwoLineTable {
 
     if ($TaskList.Count -eq 0) {
         Write-Host "";
-        Write-Host "  [!] Brak zadan spelniajacych biezace kryteria wyszukiwania i filtrowania." -ForegroundColor Yellow;
+        Write-Host "  [!] No tasks match the current search and filter criteria." -ForegroundColor Yellow;
         Write-Host "";
         return;
     };
 
-    Write-Host ("{0,-6} {1,-10} {2,-8} {3,-16} {4,-42} {5,-18} {6,-18}" -f "Nr", "Status", "Typ", "Trigger", "Nazwa zadania", "Next run", "Last run") -ForegroundColor DarkGray;
+    Write-Host ("{0,-6} {1,-10} {2,-8} {3,-16} {4,-42} {5,-18} {6,-18}" -f "No", "Status", "Type", "Trigger", "Task Name", "Next run", "Last run") -ForegroundColor DarkGray;
     Write-Host ("=" * 125) -ForegroundColor DarkGray;
 
     $esc = [char]27;
@@ -429,7 +430,7 @@ function Invoke-TaskActionByName {
 
     $cleanPattern = $Pattern.Trim();
     if ([string]::IsNullOrWhiteSpace($cleanPattern)) {
-        Write-Host "Nie podano nazwy ani wzorca zadania." -ForegroundColor DarkYellow;
+        Write-Host "No task name or pattern provided." -ForegroundColor DarkYellow;
         return;
     };
 
@@ -443,22 +444,22 @@ function Invoke-TaskActionByName {
     };
 
     if ($matching.Count -eq 0) {
-        Write-Host "Nie znaleziono zadan pasujacych do wzorca: '$filter'" -ForegroundColor DarkYellow;
+        Write-Host "No tasks found matching pattern: '$filter'" -ForegroundColor DarkYellow;
         return;
     };
 
-    Write-Host "Znaleziono $($matching.Count) zadan pasujacych do '$filter':" -ForegroundColor Cyan;
+    Write-Host "Found $($matching.Count) task(s) matching '$filter':" -ForegroundColor Cyan;
     foreach ($t in $matching) {
         try {
             if ($Action -eq "Disable") {
                 Disable-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -ErrorAction Stop | Out-Null;
-                Write-Host "  [-] Wylaczono : $($t.TaskPath)$($t.TaskName)" -ForegroundColor Yellow;
+                Write-Host "  [-] Disabled : $($t.TaskPath)$($t.TaskName)" -ForegroundColor Yellow;
             } else {
                 Enable-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -ErrorAction Stop | Out-Null;
-                Write-Host "  [+] Wlaczono  : $($t.TaskPath)$($t.TaskName)" -ForegroundColor Green;
+                Write-Host "  [+] Enabled  : $($t.TaskPath)$($t.TaskName)" -ForegroundColor Green;
             };
         } catch {
-            Write-Host "  [!] Blad dla $($t.TaskName): $_" -ForegroundColor Red;
+            Write-Host "  [!] Error for $($t.TaskName): $_" -ForegroundColor Red;
         };
     };
 };
@@ -497,45 +498,45 @@ function Start-InteractiveSession {
         };
         $taskList = Get-FilteredTasks @filterParams;
 
-        $totalTasks =$taskList.Count;
-        $msStatusText = if ([string]::IsNullOrEmpty($currentExclude)) { "Wszystkie (+System)" } else { "Tylko Uzytkownik / Aplikacje" };
-        $searchStatusText = if ([string]::IsNullOrEmpty($currentSearch)) { "Brak (*)" } else { "'$currentSearch' (Przeszukiwanie calego harmonogramu)" };
+        $totalTasks = $taskList.Count;
+        $msStatusText = if ([string]::IsNullOrEmpty($currentExclude)) { "All (+System)" } else { "User / Apps Only" };
+        $searchStatusText = if ([string]::IsNullOrEmpty($currentSearch)) { "None (*)" } else { "'$currentSearch' (Searching entire scheduler)" };
 
         Write-Host "=============================================================================================================================" -ForegroundColor Cyan;
-        Write-Host " SCHEDULED TASK MANAGER - KONSOLA ZARZADZANIA ZADANIAMI (WIDOK PELNY)" -ForegroundColor Cyan;
-        Write-Host " AKTYWNE FILTRY: [Status: $currentState] \vert{} [Typ:$msStatusText] | [Trigger: $currentTrigger] \vert{} [Szukaj:$searchStatusText]" -ForegroundColor Yellow;
-        Write-Host " Legenda Typow: System (Niebieski) | User (Zielony) | App (Turkusowy) | Znaleziono zadan: $totalTasks" -ForegroundColor DarkGray;
+        Write-Host " SCHEDULED TASK MANAGER - TASK MANAGEMENT CONSOLE (FULL VIEW)" -ForegroundColor Cyan;
+        Write-Host " ACTIVE FILTERS: [Status: $currentState] | [Type: $msStatusText] | [Trigger: $currentTrigger] | [Search: $searchStatusText]" -ForegroundColor Yellow;
+        Write-Host " Type Legend: System (Blue) | User (Green) | App (Cyan) | Tasks Found: $totalTasks" -ForegroundColor DarkGray;
         Write-Host "=============================================================================================================================" -ForegroundColor Cyan;
 
         Render-TwoLineTable -TaskList $taskList;
 
         Write-Host "";
-        Write-Host ("  Lacznie wyswietlono pozycji: $totalTasks zadan") -ForegroundColor Cyan;
+        Write-Host ("  Total items displayed: $totalTasks tasks") -ForegroundColor Cyan;
         Write-Host ("  " + ("=" * 105)) -ForegroundColor DarkCyan;
 
-        Write-Host "AKCJE I DOSTEPNE FILTRY:" -ForegroundColor Yellow;
-        Write-Host "  Zarzadzanie zadaniami po ID :" -ForegroundColor DarkGray;
-        Write-Host "    [1..n]       Wylacz zadanie po ID (np. 1 lub 1, 3, 5)";
-        Write-Host "    [e <id>]     Wlacz zadanie po ID (np. e 3 lub e 1, 4)";
-        Write-Host "  Zarzadzanie po NAZWIE :" -ForegroundColor DarkGray;
-        Write-Host "    [d <nazwa>]  Wylacz zadanie po nazwie lub wzorcu (np. 'd *printer*', 'd Lenovo*')";
-        Write-Host "    [en <nazwa>] Wlacz zadanie po nazwie lub wzorcu (np. 'en *printer*')";
-        Write-Host "  Wyszukiwanie fraza :" -ForegroundColor DarkGray;
-        Write-Host "    [s <tekst>]  Szukaj w nazwie, sciezce i poleceniu (np. 's nvidia', 's office', 's *' aby wyczyscic)";
-        Write-Host "  Filtry przelaczane w locie :" -ForegroundColor DarkGray;
-        Write-Host "    [m]          Przelacz filtr: Tylko wlasne (User/App) <-> Wszystkie (+Systemowe)";
-        Write-Host "    [f <a|e|d>]  Filtr Statusu:  [f a] All | [f e] Enabled (Wlaczone) | [f d] Disabled (Wylaczone)";
-        Write-Host "    [t <mode>]   Filtr Triggera: [t a] All | [t b] Boot | [t l] Logon | [t t] Time | [t e] Event | [t o] OnDemand";
-        Write-Host "  Sterowanie :" -ForegroundColor DarkGray;
-        Write-Host "    [r] Odswiez liste  |  [q] Wyjdz z programu";
+        Write-Host "ACTIONS AND AVAILABLE FILTERS:" -ForegroundColor Yellow;
+        Write-Host "  Manage tasks by ID :" -ForegroundColor DarkGray;
+        Write-Host "    [1..n]       Disable task by ID (e.g. 1 or 1, 3, 5)";
+        Write-Host "    [e <id>]     Enable task by ID (e.g. e 3 or e 1, 4)";
+        Write-Host "  Manage by NAME :" -ForegroundColor DarkGray;
+        Write-Host "    [d <name>]   Disable task by name or pattern (e.g. 'd *printer*', 'd Lenovo*')";
+        Write-Host "    [en <name>]  Enable task by name or pattern (e.g. 'en *printer*')";
+        Write-Host "  Search by query :" -ForegroundColor DarkGray;
+        Write-Host "    [s <text>]   Search in name, path, and command (e.g. 's nvidia', 's office', 's *' to clear)";
+        Write-Host "  On-the-fly filter toggles :" -ForegroundColor DarkGray;
+        Write-Host "    [m]          Toggle filter: Custom Only (User/App) <-> All (+System)";
+        Write-Host "    [f <a|e|d>]  Status Filter:  [f a] All | [f e] Enabled | [f d] Disabled";
+        Write-Host "    [t <mode>]   Trigger Filter: [t a] All | [t b] Boot | [t l] Logon | [t t] Time | [t e] Event | [t o] OnDemand";
+        Write-Host "  Controls :" -ForegroundColor DarkGray;
+        Write-Host "    [r] Refresh list  |  [q] Exit program";
         Write-Host "";
 
-        $rawInput = Read-Host "Wprowadz polecenie";
-        if ($null -ne$rawInput) {
-            $rawInput =$rawInput.Trim();
+        $rawInput = Read-Host "Enter command";
+        if ($null -ne $rawInput) {
+            $rawInput = $rawInput.Trim();
         };
 
-        if ([string]::IsNullOrWhiteSpace($rawInput) -or$rawInput -ieq 'r') {
+        if ([string]::IsNullOrWhiteSpace($rawInput) -or $rawInput -ieq 'r') {
             continue;
         };
 
@@ -543,144 +544,151 @@ function Start-InteractiveSession {
             break;
         };
 
-        # 1. WYSZUKIWANIE: 's <fraza>' LUB 's' / 's *'
-        $parts =$rawInput -split '\s+', 2;
-        $cmdToken =$parts[0].ToLower();
+        # 1. SEARCH: 's <query>' OR 's' / 's *'
+        $parts = $rawInput -split '\s+', 2;
+        $cmdToken = $parts[0].ToLower();
 
-        if ($cmdToken -eq 's') {$phrase = if ($parts.Count -gt 1) {$parts[1].Trim() } else { "" };
-            if ($phrase -eq '*' -or $phrase -eq '') {$currentSearch = "";
+        if ($cmdToken -eq 's') {
+            $phrase = if ($parts.Count -gt 1) { $parts[1].Trim() } else { "" };
+            if ($phrase -eq '*' -or $phrase -eq '') {
+                $currentSearch = "";
             } else {
-                $currentSearch =$phrase.Trim('*');
+                $currentSearch = $phrase.Trim('*');
             };
             continue;
         };
 
-        # 2. PRZELACZANIE SYSTEMOWYCH: m
+        # 2. TOGGLE SYSTEM TASKS: m
         if ($rawInput -ieq 'm') {
-            if ([string]::IsNullOrEmpty($currentExclude)) {$currentExclude = '*Microsoft*';
+            if ([string]::IsNullOrEmpty($currentExclude)) {
+                $currentExclude = '*Microsoft*';
             } else {
                 $currentExclude = '';
             };
             continue;
         };
 
-        # 3. FILTR STATUSU: f a / f e / f d
-        if ($cmdToken -eq 'f' -and$parts.Count -gt 1) {
-            $flag =$parts[1].Trim().ToLower();
-            if ($flag -eq 'a') {$currentState = 'All'; continue; };
-            if ($flag -eq 'e') {$currentState = 'Enabled'; continue; };
-            if ($flag -eq 'd') {$currentState = 'Disabled'; continue; };
+        # 3. STATUS FILTER: f a / f e / f d
+        if ($cmdToken -eq 'f' -and $parts.Count -gt 1) {
+            $flag = $parts[1].Trim().ToLower();
+            if ($flag -eq 'a') { $currentState = 'All'; continue; };
+            if ($flag -eq 'e') { $currentState = 'Enabled'; continue; };
+            if ($flag -eq 'd') { $currentState = 'Disabled'; continue; };
         } elseif ($rawInput -match '^(?i:f)([aedAED])$') {
-            $flag =$matches[1].ToLower();
-            if ($flag -eq 'a') {$currentState = 'All'; continue; };
-            if ($flag -eq 'e') {$currentState = 'Enabled'; continue; };
-            if ($flag -eq 'd') {$currentState = 'Disabled'; continue; };
+            $flag = $matches[1].ToLower();
+            if ($flag -eq 'a') { $currentState = 'All'; continue; };
+            if ($flag -eq 'e') { $currentState = 'Enabled'; continue; };
+            if ($flag -eq 'd') { $currentState = 'Disabled'; continue; };
         };
 
-        # 4. FILTR TRIGGERA: t b / t l / t t / t e / t o / t a
-        if ($cmdToken -eq 't' -and$parts.Count -gt 1) {
-            $tflag =$parts[1].Trim().ToLower();
-            if ($tflag -eq 'a') {$currentTrigger = 'All'; continue; };
-            if ($tflag -eq 'b') {$currentTrigger = 'Boot'; continue; };
-            if ($tflag -eq 'l') {$currentTrigger = 'Logon'; continue; };
-            if ($tflag -eq 't') {$currentTrigger = 'Time'; continue; };
-            if ($tflag -eq 'e') {$currentTrigger = 'Event'; continue; };
-            if ($tflag -eq 'o') {$currentTrigger = 'OnDemand'; continue; };
+        # 4. TRIGGER FILTER: t b / t l / t t / t e / t o / t a
+        if ($cmdToken -eq 't' -and $parts.Count -gt 1) {
+            $tflag = $parts[1].Trim().ToLower();
+            if ($tflag -eq 'a') { $currentTrigger = 'All'; continue; };
+            if ($tflag -eq 'b') { $currentTrigger = 'Boot'; continue; };
+            if ($tflag -eq 'l') { $currentTrigger = 'Logon'; continue; };
+            if ($tflag -eq 't') { $currentTrigger = 'Time'; continue; };
+            if ($tflag -eq 'e') { $currentTrigger = 'Event'; continue; };
+            if ($tflag -eq 'o') { $currentTrigger = 'OnDemand'; continue; };
         } elseif ($rawInput -match '^(?i:t)([abletoABLETO])$') {
-            $tflag =$matches[1].ToLower();
-            if ($tflag -eq 'a') {$currentTrigger = 'All'; continue; };
-            if ($tflag -eq 'b') {$currentTrigger = 'Boot'; continue; };
-            if ($tflag -eq 'l') {$currentTrigger = 'Logon'; continue; };
-            if ($tflag -eq 't') {$currentTrigger = 'Time'; continue; };
-            if ($tflag -eq 'e') {$currentTrigger = 'Event'; continue; };
-            if ($tflag -eq 'o') {$currentTrigger = 'OnDemand'; continue; };
+            $tflag = $matches[1].ToLower();
+            if ($tflag -eq 'a') { $currentTrigger = 'All'; continue; };
+            if ($tflag -eq 'b') { $currentTrigger = 'Boot'; continue; };
+            if ($tflag -eq 'l') { $currentTrigger = 'Logon'; continue; };
+            if ($tflag -eq 't') { $currentTrigger = 'Time'; continue; };
+            if ($tflag -eq 'e') { $currentTrigger = 'Event'; continue; };
+            if ($tflag -eq 'o') { $currentTrigger = 'OnDemand'; continue; };
         };
 
-        # 5. WYLACZANIE PO NAZWIE: d <nazwa_lub_wzorzec>
-        if ($cmdToken -eq 'd' -and$parts.Count -gt 1) {
-            $nameTarget =$parts[1].Trim();
+        # 5. DISABLE BY NAME: d <name_or_pattern>
+        if ($cmdToken -eq 'd' -and $parts.Count -gt 1) {
+            $nameTarget = $parts[1].Trim();
             Invoke-TaskActionByName -Pattern $nameTarget -Action 'Disable';
             Start-Sleep -Seconds 2;
             continue;
         };
 
-        # 6. WLACZANIE PO NAZWIE: en <nazwa_lub_wzorzec>
-        if ($cmdToken -eq 'en' -and$parts.Count -gt 1) {
-            $nameTarget =$parts[1].Trim();
+        # 6. ENABLE BY NAME: en <name_or_pattern>
+        if ($cmdToken -eq 'en' -and $parts.Count -gt 1) {
+            $nameTarget = $parts[1].Trim();
             Invoke-TaskActionByName -Pattern $nameTarget -Action 'Enable';
             Start-Sleep -Seconds 2;
             continue;
         };
 
-        # 7. WLACZANIE ZADANIA PO ID: e <id>
-        if ($cmdToken -eq 'e' -and$parts.Count -gt 1) {
-            $subStr =$parts[1];
+        # 7. ENABLE TASK BY ID: e <id>
+        if ($cmdToken -eq 'e' -and $parts.Count -gt 1) {
+            $subStr = $parts[1];
             $tokens = @($subStr -split '[,;\s]+' | Where-Object { $_ -match '^\d+$' });
 
             if ($tokens.Count -eq 0) {
-                Write-Host "Nieprawidlowy identyfikator. Wpisz numery ID." -ForegroundColor Red;
+                Write-Host "Invalid identifier. Enter ID numbers." -ForegroundColor Red;
                 Start-Sleep -Seconds 2;
                 continue;
             };
 
-            for ($j = 0; $j -lt$tokens.Count; $j++) {$id = [int]$tokens[$j];
-                $target =$null;
+            for ($j = 0; $j -lt $tokens.Count; $j++) {
+                $id = [int]$tokens[$j];
+                $target = $null;
                 for ($k = 0; $k -lt $taskList.Count; $k++) {
-                    if ($taskList[$k].Id -eq $id) {$target = $taskList[$k];
+                    if ($taskList[$k].Id -eq $id) {
+                        $target = $taskList[$k];
                         break;
                     };
                 };
 
                 if ($target) {
                     try {
-                        Enable-ScheduledTask -TaskName $target.FullTaskName -TaskPath$target.TaskPath -ErrorAction Stop | Out-Null;
-                        Write-Host "Wlaczono: [$($target.Id)] $($target.FullTaskName)" -ForegroundColor Green;
+                        Enable-ScheduledTask -TaskName $target.FullTaskName -TaskPath $target.TaskPath -ErrorAction Stop | Out-Null;
+                        Write-Host "Enabled: [$($target.Id)] $($target.FullTaskName)" -ForegroundColor Green;
                     } catch {
-                        Write-Host "Blad podczas wlaczania [$($target.FullTaskName)]:$_" -ForegroundColor Red;
+                        Write-Host "Error while enabling [$($target.FullTaskName)]: $_" -ForegroundColor Red;
                     };
                 } else {
-                    Write-Host "ID '$id' nie znaleziono na aktywnej liscie." -ForegroundColor DarkYellow;
+                    Write-Host "ID '$id' not found in active list." -ForegroundColor DarkYellow;
                 };
             };
             Start-Sleep -Seconds 2;
             continue;
         };
 
-        # 8. WYLACZANIE ZADANIA PO ID: numery ID (np. 1 lub 1, 3, 5)
+        # 8. DISABLE TASK BY ID: ID numbers (e.g. 1 or 1, 3, 5)
         $allTokens = @($rawInput -split '[,;\s]+');
         $invalidTokens = @($allTokens | Where-Object { $_ -notmatch '^\d+$' });
 
         if ($invalidTokens.Count -gt 0) {
-            $joinedErr =$invalidTokens -join ', ';
-            Write-Host "Nierozpoznane polecenie: '$joinedErr'. Wpisz numery ID, 'd <nazwa>', 'en <nazwa>', 'e <id>', 's <fraza>', 'f <a|e|d>', 't <mode>' lub 'm'." -ForegroundColor Red;
+            $joinedErr = $invalidTokens -join ', ';
+            Write-Host "Unrecognized command: '$joinedErr'. Enter ID numbers, 'd <name>', 'en <name>', 'e <id>', 's <query>', 'f <a|e|d>', 't <mode>', or 'm'." -ForegroundColor Red;
             Start-Sleep -Seconds 2;
             continue;
         };
 
-        for ($j = 0; $j -lt$allTokens.Count; $j++) {$id = [int]$allTokens[$j];
-            $target =$null;
+        for ($j = 0; $j -lt $allTokens.Count; $j++) {
+            $id = [int]$allTokens[$j];
+            $target = $null;
             for ($k = 0; $k -lt $taskList.Count; $k++) {
-                if ($taskList[$k].Id -eq $id) {$target = $taskList[$k];
+                if ($taskList[$k].Id -eq $id) {
+                    $target = $taskList[$k];
                     break;
                 };
             };
 
             if ($target) {
                 try {
-                    Disable-ScheduledTask -TaskName $target.FullTaskName -TaskPath$target.TaskPath -ErrorAction Stop | Out-Null;
-                    Write-Host "Wylaczono: [$($target.Id)] $($target.FullTaskName)" -ForegroundColor Green;
+                    Disable-ScheduledTask -TaskName $target.FullTaskName -TaskPath $target.TaskPath -ErrorAction Stop | Out-Null;
+                    Write-Host "Disabled: [$($target.Id)] $($target.FullTaskName)" -ForegroundColor Green;
                 } catch {
-                    Write-Host "Blad podczas wylaczania [$($target.FullTaskName)]:$_" -ForegroundColor Red;
+                    Write-Host "Error while disabling [$($target.FullTaskName)]: $_" -ForegroundColor Red;
                 };
             } else {
-                Write-Host "ID '$id' nie znaleziono na aktywnej liscie." -ForegroundColor DarkYellow;
+                Write-Host "ID '$id' not found in active list." -ForegroundColor DarkYellow;
             };
         };
         Start-Sleep -Seconds 2;
     };
 
     Clear-Host;
-    Write-Host "Sesja menedzera zadan zakonczona." -ForegroundColor Cyan;
+    Write-Host "Scheduled task manager session closed." -ForegroundColor Cyan;
 };
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
