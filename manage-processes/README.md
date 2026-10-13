@@ -192,6 +192,25 @@ Inside the interactive console:
 
 ---
 
+## 📷 Screenshots
+
+### Standard Run & Interactive Management Console
+Comprehensive multi-line diagnostic display with real-time memory (Working Set / Private bytes), CPU time, disk I/O, binary paths, vendor metadata, listening sockets, and autostart tags:
+
+![Standard Run](assets/Standard_run.jpg)
+
+### Filtering Network Listening Processes (`-ListeningOnly` / `[net]`)
+Filtered view isolating active network daemons and sockets with bound TCP/UDP ports and service mapping:
+
+![Filtering Network Listening Processes](assets/Filtering_net_pids.jpg)
+
+### Autostart & Boot Persistence Audit (`-StartupOnly` / `[boot]`)
+Identifies background processes launched via Registry Run, Windows Startup Folders, Automatic Services, and Scheduled Tasks:
+
+![Autostart and Boot Processes](assets/Boot_pids.jpg)
+
+---
+
 ## ⚙️ Parameters Reference
 
 | Parameter | Alias | Type | Description |
