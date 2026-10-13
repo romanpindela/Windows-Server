@@ -2,18 +2,24 @@
 
 [![PowerShell Version](https://img.shields.io/badge/PowerShell-5.1%20%7C%207%2B-blue.svg)](https://microsoft.com/powershell)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20%7C%20Server-lightgrey.svg)](https://www.microsoft.com/windows)
-[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](https://github.com/romanpindela)
+[![Version](https://img.shields.io/badge/Version-1.1.0-green.svg)](https://github.com/romanpindela)
 [![Author](https://img.shields.io/badge/Author-Roman%20Pindela-orange.svg)](mailto:roman.pindela@gmail.com)
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)](https://opensource.org/licenses/MIT)
 
 An enterprise-grade process management, performance diagnostics, autostart detection, and network socket correlation utility for Windows Desktop and Windows Server environments.
 
-Designed for systems administrators, DevOps engineers, and security analysts, this tool delivers actionable insights into running processes, identifying high-resource consumers, rogue background tasks, listening network daemons, and system autostart persistence mechanisms.
+Designed for systems administrators, DevOps engineers, and security analysts, this tool delivers actionable insights into running processes, identifying high-resource consumers, rogue background tasks, listening network daemons, port blockers, and system autostart persistence mechanisms.
 
 ---
 
 ## 🌟 Key Features
 
+- **Advanced Network Sockets & Port Blocker Diagnostics**:
+  - **Instant Blocker Identification**: Locates processes or Windows Services preventing web servers (IIS, Apache, Nginx, Tomcat) or database engines (SQL Server, MySQL, PostgreSQL) from binding to their default ports (80, 443, 8080, 1433, 3306, etc.).
+  - **Port Availability Verification**: Reports whether target ports are free in green (`[OK] Port $Port jest wolny`) without waiting for entire process table snapshots.
+  - **Rich Binary & Service Metadata**: Displays executable path, file version, publisher, command line arguments, and hosted Windows services (e.g. `W3SVC`, `WinRM`, `MSSQLSERVER`).
+  - **One-Command Port Release**: Instantly terminates or kills the blocking process and its subprocess tree (`-Port 8080 -KillPort -Force`).
+  - **Dedicated Sockets Overview**: Full listing of all listening TCP/UDP sockets across the system with service resolution (`-ListeningOnly`).
 - **Comprehensive Multi-Line Process Diagnostics**:
   - **Line 1 (Core Metrics)**: `No.` | `PID` | `Process Name` | `RAM (Working Set / Private Bytes)` | `CPU Time` | `Disk I/O (Read/Write Transfer)` | `Tags ([NET], [AUTO], [HUNG])`
   - **Line 2 (Location)**: Executable binary path (`-> Path: C:\...`)
@@ -104,7 +110,88 @@ Inside the interactive console:
 
 ---
 
-### 2. Non-Interactive Snapshot Inspection
+### 2. Advanced Network Sockets & Port Blocker Diagnostics
+
+#### Find Process Blocking a Specific TCP Port
+Immediately identifies the service, daemon, or application preventing a web server (IIS, Apache, Nginx, Tomcat) or database engine (SQL Server, MySQL, PostgreSQL) from binding to its designated port.
+
+```powershell
+# Check if Tomcat / Web dev port 8080 is free, or identify the blocking process
+.\manage-processes.ps1 -Port 8080
+
+# Identify which web server is holding HTTP port 80 or HTTPS port 443
+.\manage-processes.ps1 -Port 80
+.\manage-processes.ps1 -Port 443
+
+# Identify database engine holding SQL Server port 1433 or MySQL port 3306
+.\manage-processes.ps1 -Port 1433
+.\manage-processes.ps1 -Port 3306
+```
+
+#### Verification When Port is Free (`Port $Port jest wolny`)
+If no active process or socket listener is bound to the target port, the script immediately outputs a green availability confirmation:
+```
+===============================================================================================
+  PORT AVAILABILITY STATUS: Port 8080 (All)
+===============================================================================================
+  [OK] Port 8080 jest wolny.
+       Port 8080 is free - no active process or service is blocking this port.
+===============================================================================================
+```
+
+#### Diagnostic Table & Process Card Output When Port is Blocked
+When a port is in use or blocked, the utility presents a clean table followed by deep diagnostic metadata:
+```
+ Port Stan    PID NazwaProc   Usluga                                                 Wersja      Sciezka
+ ---- ----    --- ---------   ------                                                 ------      -------
+ 8080 Listen 4812 tomcat9     Tomcat9 (Apache Tomcat 9.0) [Running/Auto]             9.0.73.0    C:\Program Files\Apache Software Foundation\Tomcat 9.0\bin\tomcat9.exe
+```
+Followed by:
+- Full Binary Path & Executable File Name
+- Product Version & Company / Publisher
+- Windows Services hosted within the process (vital for `svchost.exe`, IIS, SQL, etc.)
+- Complete Command Line Arguments
+- Physical RAM (Working Set) and CPU Execution Time
+
+#### Release Blocked Port (Force Kill Blocker)
+Terminate or forcefully kill the process holding the port in a single command:
+```powershell
+# Gracefully terminate process holding port 8080
+.\manage-processes.ps1 -Port 8080 -Terminate
+
+# Force kill process holding port 8080 without prompt
+.\manage-processes.ps1 -Port 8080 -KillPort -Force
+
+# Force kill process and its entire child subprocess tree
+.\manage-processes.ps1 -Port 8080 -KillPort -KillTree -Force
+```
+
+#### Dedicated Overview of All Listening Sockets & Ports
+Displays all active listening TCP connections and UDP endpoints across the system:
+```powershell
+# View all listening sockets, bound addresses, PIDs, services, and paths
+.\manage-processes.ps1 -ListeningOnly
+
+# Filter listening sockets by service name or keyword
+.\manage-processes.ps1 -ListeningOnly -Filter "sql"
+.\manage-processes.ps1 -ListeningOnly -Filter "http"
+
+# Display top 15 listening sockets sorted by port
+.\manage-processes.ps1 -ListeningOnly -Top 15
+```
+
+#### Export Port Diagnostics to JSON
+```powershell
+# Export port 8080 diagnostic report to structured JSON
+.\manage-processes.ps1 -Port 8080 -AsJson
+
+# Export all listening sockets to JSON file
+.\manage-processes.ps1 -ListeningOnly -AsJson | Out-File -FilePath "C:\Logs\listening_sockets.json" -Encoding UTF8
+```
+
+---
+
+### 3. Non-Interactive Snapshot Inspection
 
 #### Snapshot of all processes sorted by Memory (Default)
 ```powershell
@@ -116,23 +203,6 @@ Inside the interactive console:
 .\manage-processes.ps1 -Snapshot -Filter "*edge*"
 .\manage-processes.ps1 -Snapshot -Filter "*Microsoft*"
 .\manage-processes.ps1 -Snapshot -Filter "*Python*"
-```
-
-#### List only processes listening on network ports (TCP/UDP)
-```powershell
-.\manage-processes.ps1 -Snapshot -ListeningOnly
-```
-
-#### Find which process is listening on a specific port
-```powershell
-# Identify process listening on HTTP (80)
-.\manage-processes.ps1 -Snapshot -Port 80
-
-# Identify process listening on HTTPS (443)
-.\manage-processes.ps1 -Snapshot -Port 443
-
-# Identify process listening on RDP (3389)
-.\manage-processes.ps1 -Snapshot -Port 3389
 ```
 
 #### Inspect Autostart & Persistence Programs
@@ -164,7 +234,7 @@ Inside the interactive console:
 
 ---
 
-### 3. Process Management & Termination
+### 4. Process Management & Termination
 
 #### Graceful Process Termination
 ```powershell
@@ -216,20 +286,37 @@ Identifies background processes launched via Registry Run, Windows Startup Folde
 | Parameter | Alias | Type | Description |
 |:---|:---:|:---:|:---|
 | `-Interactive` | `-i` | Switch | Launches the interactive full-screen CLI control console. |
+| `-Port` | `-p`, `-CheckPort`, `-FindPort` | Int | Diagnoses target network port (TCP/UDP), locating blocking processes or services. If free, reports green availability. |
+| `-Protocol` | — | String | Specifies network protocol to inspect with `-Port`: `TCP`, `UDP`, or `All` (default). |
+| `-KillPort` | `-kp`, `-KillListener` | Switch | Forcefully terminates or kills the process currently holding the target `-Port`. Combine with `-Force`. |
+| `-ListeningOnly` | `-net`, `-Listening`, `-Sockets` | Switch | Displays dedicated overview of all listening network ports and sockets across the system. |
 | `-Snapshot` | `-s`, `-l` | Switch | Outputs process diagnostics table to stdout and exits. |
 | `-Terminate` | `-t`, `-Stop` | String | Gracefully terminates process by PID or Name pattern. |
 | `-Kill` | `-k`, `-ForceKill` | String | Forcefully terminates process by PID or Name pattern. |
 | `-KillTree` | `-tree`, `-kt` | Switch | Kills process and all spawned child subprocesses recursively. |
 | `-Force` | `-f`, `-Quiet` | Switch | Suppresses interactive confirmation prompts. |
 | `-Filter` | `-q`, `-Pattern` | String | Wildcard query filtering Name, Path, Publisher, or Description. |
-| `-Port` | `-p` | Int | Filters processes listening on the specified TCP/UDP port. |
-| `-ListeningOnly` | `-net` | Switch | Displays only processes actively listening on network ports. |
 | `-StartupOnly` | `-boot` | Switch | Displays only processes identified as autostart items. |
-| `-SortBy` | — | String | Sorts by `Memory` (default), `CPU`, `Disk`, `Name`, or `PID`. |
+| `-SortBy` | — | String | Sorts by `Memory` (default), `CPU`, `Disk`, `Name`, `PID`, or `Port`. |
 | `-Top` | — | Int | Limits output to the top N processes matching criteria. |
-| `-AsJson` | — | Switch | Formats output in structured JSON for automation. |
+| `-AsJson` | — | Switch | Formats output in structured JSON for automation and SIEM ingestion. |
 | `-LogPath` | `-Log` | String | Custom log file path (Default: `C:\Logs\<Timestamp>-...txt`). |
 | `-Help` | `-h` | Switch | Displays help guide, author information, and examples. |
+
+---
+
+## 🔄 Version History
+
+### [1.1.0] - 2026-10-13
+- **Port Blocker Diagnostics**: Added instant discovery of processes and Windows Services holding or blocking designated TCP/UDP network ports (`-Port <port>`).
+- **Free Port Verification**: Reports free port availability immediately (`Port $Port jest wolny`) with green console status.
+- **Hosted Windows Service Correlation**: Inspects and lists Windows Services hosted within the blocking process (crucial for `svchost.exe`, IIS `W3SVC`, `WinRM`, `MSSQLSERVER`, `MySQL`).
+- **One-Command Port Release**: Added `-KillPort` (`-kp`) switch to immediately terminate or kill the blocking process holding the port.
+- **Dedicated Listening Sockets View**: Added `-ListeningOnly` dedicated view listing all listening sockets with PIDs, services, versions, and paths.
+- **Expanded Service Mappings**: Added well-known definitions for dev servers, databases, and microservices (8000, 8080, 8443, 8888, 9000, 9200, 6379, 27017, 15672).
+
+### [1.0.0] - 2026-10-13
+- **Initial Release**: Comprehensive process manager with multi-line diagnostic display, interactive console mode, resource tracking (RAM, CPU, Disk I/O), autostart detection, process termination guardrails, and language-independent SID UAC elevation.
 
 ---
 

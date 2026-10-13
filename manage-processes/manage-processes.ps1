@@ -4,7 +4,7 @@
   Author      : Roman Pindela
   Contact     : roman.pindela@gmail.com
   GitHub      : https://github.com/romanpindela
-  Version     : 1.0.0
+  Version     : 1.1.0
   Release Date: 2026-10-13
   License     : MIT
   Repository  : https://github.com/romanpindela/Windows-Server
@@ -18,16 +18,19 @@
         and Disk I/O (Read/Write transfer counts).
       - Binary details: Full executable path, command-line arguments,
         digital publisher/manufacturer name, and file description.
-      - Network listeners: Identifies processes binding to local listening
-        TCP/UDP ports, resolving well-known service names (HTTP, HTTPS, RDP, DNS,
-        SMB, SQL, etc.).
+      - Network listeners & Port Blocker Detection: Identifies processes binding
+        to local listening TCP/UDP ports, resolving well-known service names
+        (HTTP, HTTPS, RDP, DNS, SMB, SQL, Tomcat, etc.) and hosted Windows Services.
+        Instantly detects and reports which service or application prevents web
+        servers or database engines from starting, reporting green when ports are free.
       - Autostart / Startup detection: Correlates running processes with system
         startup mechanisms, including Registry Run/RunOnce (machine & user),
         Windows Startup Folders, Automatic Windows Services, and Task Scheduler
         tasks triggered by Boot or User Logon.
       - Process lifecycle management: Graceful application termination or
         forceful kill, with optional recursive process tree elimination.
-      - Interactive console UI with live search, column sorting, and filter toggles.
+      - Interactive console UI with live search, column sorting, port inspection,
+        and filter toggles.
       - Non-interactive snapshot mode with CLI filtering and JSON export.
 
     Running without parameters displays the help menu with author, version,
@@ -36,7 +39,7 @@
 ================================================================================
 .SYNOPSIS
     Advanced process inspection, resource monitoring, autostart detection,
-    network port correlation, and process lifecycle management tool.
+    network socket & port blocker diagnostics, and process lifecycle management tool.
 
 .DESCRIPTION
     manage-processes.ps1 delivers comprehensive process management and diagnostics.
@@ -44,8 +47,9 @@
     it correlates running processes with resource metrics (CPU, RAM, Disk I/O),
     listening network ports (TCP/UDP), and persistence/startup configurations
     (Registry Run, Startup Folders, Auto-Services, Task Scheduler).
-    Features interactive console navigation, instant CLI snapshots, and safe
-    process termination (graceful close vs force kill with tree support).
+    Features advanced network socket diagnostics to instantly find processes
+    blocking TCP/UDP ports (e.g. 80, 443, 8080, 1433, 3306), interactive console
+    navigation, instant CLI snapshots, and safe process termination.
 
 .PARAMETER Interactive
     Switch parameter (-i, -Interactive). Launches the interactive console shell
@@ -78,12 +82,22 @@
     Aliases: -q, -Pattern, -Name.
 
 .PARAMETER Port
-    Filters processes listening on a specific TCP or UDP port number (e.g. 80, 443, 3389).
-    Alias: -p.
+    Specifies a network port (TCP or UDP, e.g. 80, 443, 8080, 1433, 3306) to diagnose.
+    Instantly locates the process or Windows Service holding/blocking the port,
+    displaying full binary path, product version, publisher, command line, and
+    hosted service details. If the port is free, reports port availability in green.
+    Aliases: -p, -CheckPort, -FindPort.
+
+.PARAMETER Protocol
+    Specifies network protocol to check: 'TCP', 'UDP', or 'All' (default).
+
+.PARAMETER KillPort
+    Switch parameter (-kp, -KillListener). Immediately terminates or kills the process
+    holding the port specified in -Port. Combine with -Force for silent release.
 
 .PARAMETER ListeningOnly
-    Switch parameter (-net, -Listening). Displays only processes actively listening
-    on network ports (TCP/UDP).
+    Switch parameter (-net, -Listening, -Sockets, -ListeningPorts). Displays overview
+    of processes and sockets actively listening on network ports (TCP/UDP).
 
 .PARAMETER StartupOnly
     Switch parameter (-boot, -Startup). Displays only processes identified as
@@ -91,14 +105,14 @@
 
 .PARAMETER SortBy
     Sorts process results by specified metric: 'Memory' (default), 'CPU',
-    'Disk', 'Name', or 'PID'.
+    'Disk', 'Name', 'PID', or 'Port'.
 
 .PARAMETER Top
     Limits output to the top N processes matching the filter criteria.
 
 .PARAMETER AsJson
-    Switch parameter. Outputs process diagnostics in structured JSON format,
-    ideal for CI/CD pipelines, remote auditing, or SIEM integration.
+    Switch parameter. Outputs process diagnostics or port blocker report in
+    structured JSON format, ideal for CI/CD pipelines, remote auditing, or SIEM integration.
 
 .PARAMETER Help
     Switch parameter (-h, -Help). Displays the interactive help guide,
@@ -118,6 +132,23 @@
     Displays detailed help guide, parameter documentation, and examples.
 
 .EXAMPLE
+    .\manage-processes.ps1 -Port 8080
+    Checks if port 8080 is free, or immediately identifies the process/service blocking it.
+
+.EXAMPLE
+    .\manage-processes.ps1 -Port 443
+    Finds which web server (IIS, Apache, Nginx) or service is listening on HTTPS port 443.
+
+.EXAMPLE
+    .\manage-processes.ps1 -Port 1433 -KillPort -Force
+    Forcefully terminates the process blocking SQL Server port 1433 to release the socket.
+
+.EXAMPLE
+    .\manage-processes.ps1 -ListeningOnly
+    Displays comprehensive overview of all listening network ports (TCP & UDP) with
+    owning PIDs, process names, hosted Windows services, versions, and executable paths.
+
+.EXAMPLE
     .\manage-processes.ps1 -Interactive
     Launches interactive CLI console with search, filtering, and process controls.
 
@@ -128,14 +159,6 @@
 .EXAMPLE
     .\manage-processes.ps1 -Snapshot -Filter "*chrome*"
     Lists all active Google Chrome processes with memory, CPU, and Disk I/O details.
-
-.EXAMPLE
-    .\manage-processes.ps1 -Snapshot -ListeningOnly
-    Lists all running processes associated with listening network ports (TCP/UDP).
-
-.EXAMPLE
-    .\manage-processes.ps1 -Snapshot -Port 443
-    Identifies which process is listening on network port 443 (HTTPS).
 
 .EXAMPLE
     .\manage-processes.ps1 -Snapshot -StartupOnly
@@ -158,14 +181,14 @@
     Forcefully terminates process 8120 and all of its spawned child processes.
 
 .EXAMPLE
-    .\manage-processes.ps1 -Snapshot -ListeningOnly -AsJson
-    Exports active network-listening processes to JSON format.
+    .\manage-processes.ps1 -Port 8080 -AsJson
+    Exports port 8080 diagnostic and blocking process metadata to JSON format.
 
 .NOTES
     Author      : Roman Pindela
     Contact     : roman.pindela@gmail.com
     GitHub      : https://github.com/romanpindela
-    Version     : 1.0.0
+    Version     : 1.1.0
     Compatible  : Windows 10, Windows 11, Windows Server 2016/2019/2022/2025
     Privileges  : Requires Administrator privileges for inspecting complete system
                   process details, listening sockets, and process termination.
@@ -205,11 +228,20 @@ param (
     [string]$Filter = "",
 
     [Parameter(Mandatory = $false)]
-    [Alias("p")]
+    [Alias("p", "CheckPort", "FindPort")]
+    [ValidateRange(0, 65535)]
     [int]$Port = 0,
 
     [Parameter(Mandatory = $false)]
-    [Alias("net", "Listening")]
+    [ValidateSet("TCP", "UDP", "All", IgnoreCase = $true)]
+    [string]$Protocol = "All",
+
+    [Parameter(Mandatory = $false)]
+    [Alias("kp", "KillListener")]
+    [switch]$KillPort,
+
+    [Parameter(Mandatory = $false)]
+    [Alias("net", "Listening", "Sockets", "ListeningPorts")]
     [switch]$ListeningOnly,
 
     [Parameter(Mandatory = $false)]
@@ -217,14 +249,14 @@ param (
     [switch]$StartupOnly,
 
     [Parameter(Mandatory = $false)]
-    [ValidateSet("Memory", "CPU", "Disk", "Name", "PID", IgnoreCase = $true)]
+    [ValidateSet("Memory", "CPU", "Disk", "Name", "PID", "Port", IgnoreCase = $true)]
     [string]$SortBy = "Memory",
 
     [Parameter(Mandatory = $false)]
     [ValidateRange(0, 10000)]
     [int]$Top = 0,
 
-    [Parameter(Mandatory = $false, ParameterSetName = "SnapshotSet")]
+    [Parameter(Mandatory = $false)]
     [switch]$AsJson,
 
     [Parameter(Mandatory = $false, ParameterSetName = "HelpSet")]
@@ -248,7 +280,7 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 $SCRIPT_INFO = @{
     Name        = "Manage-Processes"
     ScriptFile  = "manage-processes.ps1"
-    Version     = "1.0.0"
+    Version     = "1.1.0"
     Author      = "Roman Pindela"
     Contact     = "roman.pindela@gmail.com"
     GitHub      = "https://github.com/romanpindela"
@@ -266,43 +298,51 @@ $script:CriticalProcesses = @(
 
 # Known network port to service mapping
 $script:KnownPortServices = @{
-    20   = "FTP-Data"
-    21   = "FTP-Control"
-    22   = "SSH"
-    23   = "Telnet"
-    25   = "SMTP"
-    53   = "DNS"
-    67   = "DHCP-Server"
-    68   = "DHCP-Client"
-    80   = "HTTP"
-    88   = "Kerberos"
-    110  = "POP3"
-    123  = "NTP"
-    135  = "MS-RPC"
-    137  = "NetBIOS-NS"
-    138  = "NetBIOS-DGM"
-    139  = "NetBIOS-SSN"
-    143  = "IMAP"
-    389  = "LDAP"
-    443  = "HTTPS"
-    445  = "Microsoft-DS/SMB"
-    465  = "SMTPS"
-    587  = "SMTP-Submission"
-    636  = "LDAPS"
-    993  = "IMAPS"
-    995  = "POP3S"
-    1433 = "MS-SQL Server"
-    1434 = "MS-SQL Monitor"
-    1521 = "Oracle-DB"
-    2049 = "NFS"
-    3306 = "MySQL/MariaDB"
-    3389 = "MS-RDP"
-    5000 = "UPnP / Flask-Dev"
-    5432 = "PostgreSQL"
-    5985 = "WinRM-HTTP"
-    5986 = "WinRM-HTTPS"
-    8080 = "HTTP-Proxy / Tomcat"
-    8443 = "HTTPS-Alt"
+    20    = "FTP-Data"
+    21    = "FTP-Control"
+    22    = "SSH"
+    23    = "Telnet"
+    25    = "SMTP"
+    53    = "DNS"
+    67    = "DHCP-Server"
+    68    = "DHCP-Client"
+    80    = "HTTP / Web Server (IIS/Apache/Nginx)"
+    88    = "Kerberos"
+    110   = "POP3"
+    123   = "NTP"
+    135   = "MS-RPC"
+    137   = "NetBIOS-NS"
+    138   = "NetBIOS-DGM"
+    139   = "NetBIOS-SSN"
+    143   = "IMAP"
+    389   = "LDAP"
+    443   = "HTTPS / Secure Web Server"
+    445   = "Microsoft-DS / SMB"
+    465   = "SMTPS"
+    587   = "SMTP-Submission"
+    636   = "LDAPS"
+    993   = "IMAPS"
+    995   = "POP3S"
+    1433  = "MS-SQL Server Database Engine"
+    1434  = "MS-SQL Monitor / Browser"
+    1521  = "Oracle Database"
+    2049  = "NFS"
+    3306  = "MySQL / MariaDB Database"
+    3389  = "MS-RDP Remote Desktop"
+    5000  = "UPnP / Flask-Dev"
+    5432  = "PostgreSQL Database Engine"
+    5985  = "WinRM-HTTP"
+    5986  = "WinRM-HTTPS"
+    6379  = "Redis In-Memory Store"
+    8000  = "HTTP-Alt / Dev-Server (Django/Node)"
+    8008  = "HTTP-Alt"
+    8080  = "HTTP-Proxy / Apache Tomcat / Spring Boot"
+    8443  = "HTTPS-Alt / Tomcat-SSL"
+    8888  = "HTTP-Proxy / Jupyter Notebook"
+    9000  = "PHP-FPM / SonarQube"
+    9200  = "Elasticsearch HTTP"
+    15672 = "RabbitMQ Management"
+    27017 = "MongoDB Database"
 }
 
 # ==============================================================================
@@ -436,30 +476,38 @@ DESCRIPTION:
   Inspects memory (RAM WorkingSet / Private bytes), CPU time, Disk I/O,
   full executable paths, software publisher/vendor metadata, listening
   network sockets (TCP/UDP), and system startup / autostart mechanisms.
-  Provides safe process termination (graceful close vs force kill with tree).
+  Features instant port blocker detection to immediately locate services
+  preventing web servers (IIS, Apache, Nginx) or database engines (SQL, MySQL)
+  from starting, and safe lifecycle controls (graceful close vs force kill).
 
 USAGE:
   .\$($SCRIPT_INFO.ScriptFile) -Interactive
-  .\$($SCRIPT_INFO.ScriptFile) -Snapshot [-Filter <query>] [-Port <port>] [-ListeningOnly] [-StartupOnly]
+  .\$($SCRIPT_INFO.ScriptFile) -Port <port> [-Protocol <TCP|UDP|All>] [-KillPort] [-Force] [-AsJson]
+  .\$($SCRIPT_INFO.ScriptFile) -ListeningOnly [-Filter <query>] [-SortBy <metric>] [-Top <n>] [-AsJson]
+  .\$($SCRIPT_INFO.ScriptFile) -Snapshot [-Filter <query>] [-StartupOnly] [-SortBy <metric>] [-Top <n>]
   .\$($SCRIPT_INFO.ScriptFile) -Terminate <PID|Name> [-KillTree] [-Force]
   .\$($SCRIPT_INFO.ScriptFile) -Kill <PID|Name> [-KillTree] [-Force]
   .\$($SCRIPT_INFO.ScriptFile) -h | -Help
 
 PARAMETERS:
   -Interactive, -i     : Launches interactive full-screen CLI console.
-  -Snapshot, -s, -l    : Outputs active processes table / snapshot and exits.
+  -Port, -p, -CheckPort: Diagnoses target network port (TCP/UDP). Immediately identifies
+                         the process/service holding the port with full path, version,
+                         and command line. If the port is free, outputs green status.
+  -Protocol            : Protocol to inspect with -Port ('TCP', 'UDP', or 'All' [default]).
+  -KillPort, -kp       : Immediately terminates or kills the process holding the specified -Port.
+  -ListeningOnly, -net : Displays dedicated Advanced Network Sockets & Listening Ports overview.
+  -Snapshot, -s, -l    : Outputs active process diagnostics table / snapshot and exits.
   -Terminate, -t       : Gracefully closes process by PID or Name (CloseMainWindow fallback).
   -Kill, -k            : Forcefully terminates process by PID or Name.
   -KillTree, -kt       : Recursively terminates process and all child subprocesses.
   -Force, -f           : Bypasses confirmation prompts for process termination.
   -Filter, -q          : Filters processes by Name, Path, Publisher, or Description.
-  -Port, -p            : Filters processes listening on a specific TCP/UDP port (e.g. 80, 443).
-  -ListeningOnly, -net : Filters view to processes binding to listening network ports.
   -StartupOnly, -boot  : Filters view to autostart processes (Registry, Startup Folders,
                          Auto-Services, Task Scheduler Boot/Logon).
-  -SortBy              : Sorts results by 'Memory' (default), 'CPU', 'Disk', 'Name', or 'PID'.
+  -SortBy              : Sorts results by 'Memory' (default), 'CPU', 'Disk', 'Name', 'PID', or 'Port'.
   -Top <n>             : Limits output to top N records (e.g. -Top 20).
-  -AsJson              : Outputs diagnostics snapshot in structured JSON format.
+  -AsJson              : Outputs diagnostics snapshot or port blocker report in structured JSON.
   -LogPath, -Log       : Custom activity log path (Default: C:\Logs\<DateTime>-...-Manage-Processes.txt).
   -Help, -h            : Displays this help menu, author info, and practical examples.
 
@@ -471,36 +519,43 @@ EXAMPLES:
   # 1. Safe default help view
   .\$($SCRIPT_INFO.ScriptFile)
 
-  # 2. Interactive management console
+  # 2. Check if port 8080 is free (or find blocking Tomcat / Web / Node process)
+  .\$($SCRIPT_INFO.ScriptFile) -Port 8080
+
+  # 3. Locate process or IIS / Apache service blocking web port 80 or 443
+  .\$($SCRIPT_INFO.ScriptFile) -Port 80
+  .\$($SCRIPT_INFO.ScriptFile) -Port 443
+
+  # 4. Release port 1433 by force-killing the blocking database process
+  .\$($SCRIPT_INFO.ScriptFile) -Port 1433 -KillPort -Force
+
+  # 5. Dedicated overview of all listening network sockets (TCP & UDP)
+  .\$($SCRIPT_INFO.ScriptFile) -ListeningOnly
+
+  # 6. Filter listening sockets by service name or keyword
+  .\$($SCRIPT_INFO.ScriptFile) -ListeningOnly -Filter "sql"
+  .\$($SCRIPT_INFO.ScriptFile) -ListeningOnly -Filter "http"
+
+  # 7. Interactive management console (Press 'p <port>' for instant port check)
   .\$($SCRIPT_INFO.ScriptFile) -Interactive
 
-  # 3. Snapshot of all active processes sorted by RAM
+  # 8. Snapshot of all active processes sorted by RAM
   .\$($SCRIPT_INFO.ScriptFile) -Snapshot
 
-  # 4. Search processes by publisher or name
-  .\$($SCRIPT_INFO.ScriptFile) -Snapshot -Filter "*chrome*"
-
-  # 5. List processes listening on network ports (TCP/UDP)
-  .\$($SCRIPT_INFO.ScriptFile) -Snapshot -ListeningOnly
-
-  # 6. Check which process is bound to port 443 (HTTPS) or 3389 (RDP)
-  .\$($SCRIPT_INFO.ScriptFile) -Snapshot -Port 443
-  .\$($SCRIPT_INFO.ScriptFile) -Snapshot -Port 3389
-
-  # 7. Audit autostart / startup applications
-  .\$($SCRIPT_INFO.ScriptFile) -Snapshot -StartupOnly
-
-  # 8. Top 15 CPU consumers
+  # 9. Top 15 CPU consumers
   .\$($SCRIPT_INFO.ScriptFile) -Snapshot -SortBy CPU -Top 15
 
-  # 9. Graceful termination of process
+  # 10. Audit autostart / startup applications
+  .\$($SCRIPT_INFO.ScriptFile) -Snapshot -StartupOnly
+
+  # 11. Graceful termination of process
   .\$($SCRIPT_INFO.ScriptFile) -Terminate 4120
 
-  # 10. Force kill process tree
+  # 12. Force kill process tree
   .\$($SCRIPT_INFO.ScriptFile) -Kill 9824 -KillTree -Force
 
-  # 11. Export listening services to JSON
-  .\$($SCRIPT_INFO.ScriptFile) -Snapshot -ListeningOnly -AsJson
+  # 13. Export port diagnostic report to JSON
+  .\$($SCRIPT_INFO.ScriptFile) -Port 8080 -AsJson
 ================================================================================
 "@ -ForegroundColor Yellow
 }
@@ -612,6 +667,488 @@ function Get-ListeningNetworkMap {
     catch {}
 
     return $netMap
+}
+
+# ==============================================================================
+# ADVANCED NETWORK & SOCKETS: FIND BLOCKING PORT PROCESS
+# ==============================================================================
+function Find-BlockingPortProcess {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(1, 65535)]
+        [int]$TargetPort,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateSet("TCP", "UDP", "All", IgnoreCase = $true)]
+        [string]$Protocol = "All",
+
+        [switch]$AsJson,
+        [switch]$KillProcess,
+        [switch]$TerminateProcess,
+        [switch]$KillTree,
+        [switch]$BypassConfirmation
+    )
+
+    Write-Log "Scanning network sockets for Port $TargetPort (Protocol: $Protocol)..." Cyan
+
+    $listeners = [System.Collections.Generic.List[PSCustomObject]]::new()
+
+    # 1. Inspect TCP Connections
+    if ($Protocol -in @("TCP", "All")) {
+        try {
+            $tcpConns = Get-NetTCPConnection -LocalPort $TargetPort -ErrorAction SilentlyContinue
+            if ($tcpConns) {
+                foreach ($conn in $tcpConns) {
+                    $pidNum = [int]$conn.OwningProcess
+                    $listeners.Add([PSCustomObject]@{
+                        Protocol     = "TCP"
+                        LocalAddress = $conn.LocalAddress
+                        LocalPort    = [int]$conn.LocalPort
+                        Remote       = if ($conn.RemoteAddress -and $conn.RemoteAddress -ne "0.0.0.0" -and $conn.RemoteAddress -ne "::") { "$($conn.RemoteAddress):$($conn.RemotePort)" } else { "*:*" }
+                        State        = "$($conn.State)"
+                        PID          = $pidNum
+                    })
+                }
+            }
+        }
+        catch {}
+    }
+
+    # 2. Inspect UDP Endpoints
+    if ($Protocol -in @("UDP", "All")) {
+        try {
+            $udpEnds = Get-NetUDPEndpoint -LocalPort $TargetPort -ErrorAction SilentlyContinue
+            if ($udpEnds) {
+                foreach ($udp in $udpEnds) {
+                    $pidNum = [int]$udp.OwningProcess
+                    $listeners.Add([PSCustomObject]@{
+                        Protocol     = "UDP"
+                        LocalAddress = $udp.LocalAddress
+                        LocalPort    = [int]$udp.LocalPort
+                        Remote       = "*:*"
+                        State        = "Listen"
+                        PID          = $pidNum
+                    })
+                }
+            }
+        }
+        catch {}
+    }
+
+    # 3. Handle Port Free Condition
+    if ($listeners.Count -eq 0) {
+        if ($AsJson) {
+            [PSCustomObject]@{
+                Port        = $TargetPort
+                Protocol    = $Protocol
+                IsBlocked   = $false
+                Status      = "Free"
+                Message     = "Port $TargetPort is free / wolny."
+                Listeners   = @()
+            } | ConvertTo-Json
+        }
+        else {
+            Write-Host ""
+            Write-Host ("=" * 95) -ForegroundColor Green
+            Write-Host ("  PORT AVAILABILITY STATUS: Port $TargetPort ($Protocol)") -ForegroundColor Green
+            Write-Host ("=" * 95) -ForegroundColor Green
+            Write-Host ("  [OK] Port $TargetPort jest wolny.") -ForegroundColor Green
+            Write-Host ("       Port $TargetPort is free - no active process or service is blocking this port.") -ForegroundColor Green
+            Write-Host ("=" * 95) -ForegroundColor Green
+            Write-Host ""
+        }
+        Write-Log "Port $TargetPort is free." Green
+        return
+    }
+
+    # 4. Enrich listeners with Process & Windows Service details
+    $enrichedListeners = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $pidsToManage = [System.Collections.Generic.List[int]]::new()
+
+    foreach ($item in $listeners) {
+        $pidNum = $item.PID
+        if ($pidNum -gt 0 -and -not $pidsToManage.Contains($pidNum)) {
+            $pidsToManage.Add($pidNum)
+        }
+
+        $proc = $null
+        if ($pidNum -gt 0) {
+            $proc = Get-Process -Id $pidNum -ErrorAction SilentlyContinue
+        }
+
+        # Process metadata
+        $procName = if ($proc) { $proc.ProcessName } elseif ($pidNum -eq 0) { "System Idle / Kernel" } else { "Unknown (PID: $pidNum)" }
+        $procPath = "-"
+        $company = "-"
+        $description = "-"
+        $version = "-"
+        $cmdLine = "-"
+        $parentPid = 0
+
+        if ($proc) {
+            try {
+                if ($proc.Path) { $procPath = $proc.Path }
+                elseif ($proc.MainModule.FileName) { $procPath = $proc.MainModule.FileName }
+            } catch {}
+
+            if ($procPath -ne "-" -and (Test-Path $procPath)) {
+                try {
+                    $vInfo = (Get-Item $procPath -ErrorAction SilentlyContinue).VersionInfo
+                    if ($vInfo) {
+                        if ($vInfo.ProductVersion) { $version = $vInfo.ProductVersion.Trim() }
+                        elseif ($vInfo.FileVersion) { $version = $vInfo.FileVersion.Trim() }
+                        if ($vInfo.CompanyName) { $company = $vInfo.CompanyName.Trim() }
+                        if ($vInfo.FileDescription) { $description = $vInfo.FileDescription.Trim() }
+                    }
+                } catch {}
+            }
+        }
+
+        # Win32_Process for CommandLine & ParentProcessId
+        try {
+            $cimProc = Get-CimInstance Win32_Process -Filter "ProcessId = $pidNum" -ErrorAction SilentlyContinue
+            if ($cimProc) {
+                if ($cimProc.CommandLine) { $cmdLine = $cimProc.CommandLine }
+                if ($cimProc.ParentProcessId) { $parentPid = [int]$cimProc.ParentProcessId }
+            }
+        } catch {}
+
+        # Query Windows Services associated with this PID (crucial for svchost, IIS, SQL, etc.)
+        $hostedServices = [System.Collections.Generic.List[string]]::new()
+        try {
+            $svcs = Get-CimInstance Win32_Service -Filter "ProcessId = $pidNum" -ErrorAction SilentlyContinue
+            if ($svcs) {
+                foreach ($s in $svcs) {
+                    $hostedServices.Add("$($s.Name) ($($s.DisplayName)) [$($s.State)/$($s.StartMode)]")
+                }
+            }
+        } catch {}
+
+        $serviceText = if ($hostedServices.Count -gt 0) {
+            $hostedServices -join " | "
+        } else {
+            if ($script:KnownPortServices.ContainsKey($item.LocalPort)) {
+                "$($script:KnownPortServices[$item.LocalPort])"
+            } else {
+                "Standalone Application"
+            }
+        }
+
+        # Memory & CPU
+        $wsFormatted = "-"
+        $cpuFormatted = "-"
+        if ($proc) {
+            try { $wsFormatted = Format-ByteSize $proc.WorkingSet64 } catch {}
+            try {
+                if ($null -ne $proc.TotalProcessorTime) {
+                    $tpt = $proc.TotalProcessorTime
+                    $cpuFormatted = "{0:D2}:{1:D2}:{2:D2}" -f [int]$tpt.TotalHours, $tpt.Minutes, $tpt.Seconds
+                }
+            } catch {}
+        }
+
+        $enrichedListeners.Add([PSCustomObject]@{
+            Port         = $item.LocalPort
+            Protokol     = $item.Protocol
+            Stan         = $item.State
+            AdresLokalny = "$($item.LocalAddress):$($item.LocalPort)"
+            PID          = $pidNum
+            NazwaProc    = $procName
+            Usluga       = $serviceText
+            Wersja       = $version
+            Firma        = $company
+            Opis         = $description
+            Sciezka      = $procPath
+            CommandLine  = $cmdLine
+            ParentPID    = $parentPid
+            RAM          = $wsFormatted
+            CPU          = $cpuFormatted
+            RawServices  = @($hostedServices)
+        })
+    }
+
+    # 5. Output rendering
+    if ($AsJson) {
+        [PSCustomObject]@{
+            Port        = $TargetPort
+            Protocol    = $Protocol
+            IsBlocked   = $true
+            Status      = "Blocked"
+            Listeners   = $enrichedListeners
+        } | ConvertTo-Json -Depth 5
+    }
+    else {
+        Write-Host ""
+        Write-Host ("=" * 115) -ForegroundColor Red
+        Write-Host ("  [ALERT] PORT $TargetPort IS IN USE / BLOCKED (PORT $TargetPort JEST ZABLOKOWANY)!") -ForegroundColor Red
+        Write-Host ("=" * 115) -ForegroundColor Red
+        Write-Host ("  Process(es) / Service(s) currently occupying Port {0}:" -f $TargetPort) -ForegroundColor Yellow
+        Write-Host ""
+
+        # Display clean table matching user standard
+        $tableOutput = $enrichedListeners | Select-Object `
+            @{Name = "Port"; Expression = { $_.Port }},
+            @{Name = "Stan"; Expression = { $_.Stan }},
+            @{Name = "PID"; Expression = { $_.PID }},
+            @{Name = "NazwaProc"; Expression = { $_.NazwaProc }},
+            @{Name = "Usluga"; Expression = { $_.Usluga }},
+            @{Name = "Wersja"; Expression = { $_.Wersja }},
+            @{Name = "Sciezka"; Expression = { $_.Sciezka }}
+
+        $tableOutput | Format-Table -AutoSize | Out-String | Write-Host -ForegroundColor Cyan
+
+        # Display Detailed Process & Service Diagnostic Cards
+        $seenPids = @()
+        foreach ($item in $enrichedListeners) {
+            if ($seenPids -contains $item.PID) { continue }
+            $seenPids += $item.PID
+
+            Write-Host ("-" * 115) -ForegroundColor DarkCyan
+            Write-Host ("  DIAGNOSTIC CARD FOR BLOCKING PROCESS: {0} (PID: {1})" -f $item.NazwaProc, $item.PID) -ForegroundColor Yellow
+            Write-Host ("-" * 115) -ForegroundColor DarkCyan
+            Write-Host ("    Process Name   : {0} (PID: {1}, Parent PID: {2})" -f $item.NazwaProc, $item.PID, $item.ParentPID) -ForegroundColor White
+            Write-Host ("    Executable Path: {0}" -f $item.Sciezka) -ForegroundColor White
+            Write-Host ("    File Version   : {0} | Company: {1}" -f $item.Wersja, $item.Firma) -ForegroundColor DarkGray
+            Write-Host ("    Description    : {0}" -f $item.Opis) -ForegroundColor DarkGray
+            Write-Host ("    Command Line   : {0}" -f $item.CommandLine) -ForegroundColor DarkYellow
+            Write-Host ("    Resource Usage : RAM WS: {0} | CPU Time: {1}" -f $item.RAM, $item.CPU) -ForegroundColor Green
+
+            if ($item.RawServices.Count -gt 0) {
+                Write-Host "    Hosted Windows Service(s):" -ForegroundColor Magenta
+                foreach ($s in $item.RawServices) {
+                    Write-Host ("      * {0}" -f $s) -ForegroundColor Magenta
+                }
+            }
+            Write-Host ""
+        }
+        Write-Host ("=" * 115) -ForegroundColor Red
+        Write-Host ""
+    }
+
+    # 6. Automatic Termination / Kill Execution
+    if ($KillProcess -or $TerminateProcess) {
+        foreach ($pidToKill in $pidsToManage) {
+            if ($pidToKill -le 4) {
+                Write-Log "Cannot terminate system kernel process PID $pidToKill." Red
+                continue
+            }
+            if ($KillProcess) {
+                Write-Log "Force killing blocking process PID $pidToKill..." Yellow
+                Stop-ManagedProcess -Target "$pidToKill" -ForceKill -KillTree:$KillTree -BypassConfirmation:$BypassConfirmation
+            }
+            elseif ($TerminateProcess) {
+                Write-Log "Gracefully terminating blocking process PID $pidToKill..." Yellow
+                Stop-ManagedProcess -Target "$pidToKill" -KillTree:$KillTree -BypassConfirmation:$BypassConfirmation
+            }
+        }
+
+        # Re-verify port availability
+        Start-Sleep -Milliseconds 800
+        $recheck = Get-NetTCPConnection -LocalPort $TargetPort -ErrorAction SilentlyContinue
+        if (-not $recheck) {
+            Write-Host " [SUCCESS] Port $TargetPort is now released and FREE!" -ForegroundColor Green
+        } else {
+            Write-Host " [WARNING] Port $TargetPort is still in use after termination attempt." -ForegroundColor Yellow
+        }
+    }
+    else {
+        if (-not $AsJson) {
+            Write-Host (" Tip: To terminate the process blocking port {0}, run:" -f $TargetPort) -ForegroundColor Yellow
+            Write-Host ("   .\manage-processes.ps1 -Port {0} -KillPort -Force" -f $TargetPort) -ForegroundColor Yellow
+            Write-Host ("   .\manage-processes.ps1 -Port {0} -KillPort -KillTree -Force" -f $TargetPort) -ForegroundColor Yellow
+            Write-Host ""
+        }
+    }
+}
+
+# ==============================================================================
+# ADVANCED NETWORK & SOCKETS: ALL LISTENING PORTS OVERVIEW
+# ==============================================================================
+function Show-ListeningNetworkOverview {
+    [CmdletBinding()]
+    param (
+        [string]$FilterQuery = "",
+        [string]$Protocol = "All",
+        [string]$SortBy = "Port",
+        [int]$TopLimit = 0,
+        [switch]$AsJson
+    )
+
+    Write-Log "Collecting all active listening network ports and sockets..." Cyan
+
+    $rows = [System.Collections.Generic.List[PSCustomObject]]::new()
+
+    # Query TCP Listening Connections
+    if ($Protocol -in @("TCP", "All")) {
+        $tcpList = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue
+        if ($tcpList) {
+            foreach ($tcp in $tcpList) {
+                $port = [int]$tcp.LocalPort
+                $pidNum = [int]$tcp.OwningProcess
+                $rows.Add([PSCustomObject]@{
+                    Protocol     = "TCP"
+                    LocalAddress = $tcp.LocalAddress
+                    Port         = $port
+                    State        = "$($tcp.State)"
+                    PID          = $pidNum
+                })
+            }
+        }
+    }
+
+    # Query UDP Endpoints
+    if ($Protocol -in @("UDP", "All")) {
+        $udpList = Get-NetUDPEndpoint -ErrorAction SilentlyContinue
+        if ($udpList) {
+            foreach ($udp in $udpList) {
+                $port = [int]$udp.LocalPort
+                $pidNum = [int]$udp.OwningProcess
+                $rows.Add([PSCustomObject]@{
+                    Protocol     = "UDP"
+                    LocalAddress = $udp.LocalAddress
+                    Port         = $port
+                    State        = "Listen"
+                    PID          = $pidNum
+                })
+            }
+        }
+    }
+
+    # Enrich rows with Process & Service details
+    $procCache = @{}
+    $serviceCache = @{}
+
+    # Pre-cache services by PID for fast batch resolution
+    try {
+        $allServices = Get-CimInstance Win32_Service -ErrorAction SilentlyContinue
+        if ($allServices) {
+            foreach ($s in $allServices) {
+                $spid = [int]$s.ProcessId
+                if ($spid -gt 0) {
+                    if (-not $serviceCache.ContainsKey($spid)) {
+                        $serviceCache[$spid] = [System.Collections.Generic.List[string]]::new()
+                    }
+                    $serviceCache[$spid].Add("$($s.Name) ($($s.DisplayName))")
+                }
+            }
+        }
+    } catch {}
+
+    $enriched = [System.Collections.Generic.List[PSCustomObject]]::new()
+
+    foreach ($r in $rows) {
+        $pidNum = $r.PID
+        if (-not $procCache.ContainsKey($pidNum)) {
+            $pObj = $null
+            if ($pidNum -gt 0) {
+                $pObj = Get-Process -Id $pidNum -ErrorAction SilentlyContinue
+            }
+
+            $pName = if ($pObj) { $pObj.ProcessName } elseif ($pidNum -eq 0) { "System Idle / Kernel" } else { "Unknown" }
+            $pPath = "-"
+            $pVer  = "-"
+            $pComp = "-"
+
+            if ($pObj) {
+                try {
+                    if ($pObj.Path) { $pPath = $pObj.Path }
+                    elseif ($pObj.MainModule.FileName) { $pPath = $pObj.MainModule.FileName }
+                } catch {}
+
+                if ($pPath -ne "-" -and (Test-Path $pPath)) {
+                    try {
+                        $vi = (Get-Item $pPath -ErrorAction SilentlyContinue).VersionInfo
+                        if ($vi) {
+                            if ($vi.ProductVersion) { $pVer = $vi.ProductVersion.Trim() }
+                            if ($vi.CompanyName) { $pComp = $vi.CompanyName.Trim() }
+                        }
+                    } catch {}
+                }
+            }
+
+            $procCache[$pidNum] = @{
+                Name    = $pName
+                Path    = $pPath
+                Version = $pVer
+                Company = $pComp
+            }
+        }
+
+        $cachedP = $procCache[$pidNum]
+        $svcText = if ($serviceCache.ContainsKey($pidNum)) {
+            $serviceCache[$pidNum] -join " | "
+        } else {
+            if ($script:KnownPortServices.ContainsKey($r.Port)) {
+                $script:KnownPortServices[$r.Port]
+            } else {
+                "-"
+            }
+        }
+
+        $enriched.Add([PSCustomObject]@{
+            Port         = $r.Port
+            Protocol     = $r.Protocol
+            State        = $r.State
+            Address      = "$($r.LocalAddress):$($r.Port)"
+            PID          = $pidNum
+            ProcessName  = $cachedP.Name
+            Service      = $svcText
+            Version      = $cachedP.Version
+            Publisher    = $cachedP.Company
+            Path         = $cachedP.Path
+        })
+    }
+
+    # Filter query
+    $filtered = $enriched
+    if (-not [string]::IsNullOrWhiteSpace($FilterQuery) -and $FilterQuery -ne "*") {
+        $cq = $FilterQuery.Trim().Trim('*')
+        $filtered = @($filtered | Where-Object {
+            $_.ProcessName -like "*$cq*" -or
+            $_.Service -like "*$cq*" -or
+            $_.Path -like "*$cq*" -or
+            $_.Publisher -like "*$cq*" -or
+            "$($_.Port)" -like "*$cq*"
+        })
+    }
+
+    # Sort
+    switch ($SortBy.ToLower()) {
+        "name"  { $filtered = @($filtered | Sort-Object -Property ProcessName, Port) }
+        "pid"   { $filtered = @($filtered | Sort-Object -Property PID, Port) }
+        default { $filtered = @($filtered | Sort-Object -Property Port, Protocol) }
+    }
+
+    # Top
+    if ($TopLimit -gt 0 -and $filtered.Count -gt $TopLimit) {
+        $filtered = @($filtered | Select-Object -First $TopLimit)
+    }
+
+    if ($AsJson) {
+        $filtered | ConvertTo-Json -Depth 4
+        return
+    }
+
+    Write-Host ""
+    Write-Host ("=" * 125) -ForegroundColor Cyan
+    Write-Host (" ADVANCED NETWORK SOCKETS & LISTENING PORTS OVERVIEW ({0} active listeners)" -f $filtered.Count) -ForegroundColor Cyan
+    Write-Host ("=" * 125) -ForegroundColor Cyan
+
+    $filtered | Select-Object `
+        @{Name = "Port"; Expression = { $_.Port }},
+        @{Name = "Proto"; Expression = { $_.Protocol }},
+        @{Name = "State"; Expression = { $_.State }},
+        @{Name = "Address"; Expression = { $_.Address }},
+        @{Name = "PID"; Expression = { $_.PID }},
+        @{Name = "ProcessName"; Expression = { $_.ProcessName }},
+        @{Name = "Service / WellKnown"; Expression = { $_.Service }},
+        @{Name = "Version"; Expression = { $_.Version }},
+        @{Name = "Path"; Expression = { $_.Path }} |
+        Format-Table -AutoSize | Out-String | Write-Host -ForegroundColor Cyan
+
+    Write-Host ("=" * 125) -ForegroundColor Cyan
+    Write-Host ""
 }
 
 # ==============================================================================
@@ -1210,7 +1747,7 @@ function Show-ProcessDetailModal {
     if ($Proc.IsListening) {
         Write-Host "    Bound Sockets :" -ForegroundColor Magenta
         foreach ($d in $Proc.ListeningDetails) {
-            Write-Host ("      • [{0}] {1}:{2} -> Service: {3}" -f $d.Protocol, $d.LocalAddress, $d.LocalPort, $d.Service) -ForegroundColor White
+            Write-Host ("      * [{0}] {1}:{2} -> Service: {3}" -f $d.Protocol, $d.LocalAddress, $d.LocalPort, $d.Service) -ForegroundColor White
         }
     }
     Write-Host ""
@@ -1373,8 +1910,22 @@ function Start-InteractiveProcessSession {
             }
             "p" {
                 $pNum = 0
-                if ([int]::TryParse($arg, [ref]$pNum)) {
-                    $currentPort = $pNum
+                if ([int]::TryParse($arg, [ref]$pNum) -and $pNum -gt 0) {
+                    Clear-Host
+                    Find-BlockingPortProcess -TargetPort $pNum -Protocol "All"
+                    Write-Host "Interactive Options:" -ForegroundColor Yellow
+                    Write-Host "  [t] Graceful Terminate  |  [k] Force Kill  |  [kt] Kill Tree  |  [c] Filter table by Port $pNum  |  [Enter] Return" -ForegroundColor DarkGray
+                    $actionChoice = Read-Host "Select option"
+                    if ($actionChoice -match '^(k|kt|t)$') {
+                        $isTree = ($actionChoice -eq 'kt')
+                        $isForce = ($actionChoice -in @('k', 'kt'))
+                        Find-BlockingPortProcess -TargetPort $pNum -KillProcess:$isForce -TerminateProcess:(-not $isForce) -KillTree:$isTree -BypassConfirmation
+                        Write-Host "Press [Enter] to return..." -ForegroundColor Cyan
+                        [void][System.Console]::ReadLine()
+                    }
+                    elseif ($actionChoice -ieq 'c') {
+                        $currentPort = $pNum
+                    }
                 } else {
                     $currentPort = 0
                 }
@@ -1472,18 +2023,44 @@ try {
     # 4. Logging Initialization
     $null = Initialize-Logging -CustomPath $LogPath
 
-    # 5. Route: Process Termination / Kill (Non-interactive)
-    if ($Terminate) {
+    # 5. Route: Process Termination / Kill (Non-interactive by PID or Name)
+    if ($Terminate -and $Port -le 0) {
         Stop-ManagedProcess -Target $Terminate -KillTree:$KillTree -BypassConfirmation:$Force
         Exit 0
     }
 
-    if ($Kill) {
+    if ($Kill -and $Port -le 0) {
         Stop-ManagedProcess -Target $Kill -ForceKill -KillTree:$KillTree -BypassConfirmation:$Force
         Exit 0
     }
 
-    # 6. Route: Interactive Console Mode
+    # 6. Route: Dedicated Port Diagnostics & Blocker Detection (Fast path)
+    if ($Port -gt 0 -and -not $Snapshot) {
+        $hasKill = $KillPort.IsPresent -or [bool]$Kill
+        $hasTerm = [bool]$Terminate
+        Find-BlockingPortProcess `
+            -TargetPort $Port `
+            -Protocol $Protocol `
+            -AsJson:$AsJson `
+            -KillProcess:$hasKill `
+            -TerminateProcess:$hasTerm `
+            -KillTree:$KillTree `
+            -BypassConfirmation:$Force
+        Exit 0
+    }
+
+    # 7. Route: Dedicated Advanced Network Sockets & Listening Ports Overview
+    if ($ListeningOnly -and -not $Snapshot -and -not $Interactive) {
+        Show-ListeningNetworkOverview `
+            -FilterQuery $Filter `
+            -Protocol $Protocol `
+            -SortBy $SortBy `
+            -TopLimit $Top `
+            -AsJson:$AsJson
+        Exit 0
+    }
+
+    # 8. Route: Interactive Console Mode
     if ($Interactive) {
         Start-InteractiveProcessSession `
             -InitialFilter $Filter `
@@ -1494,8 +2071,8 @@ try {
         Exit 0
     }
 
-    # 7. Route: Snapshot / List Mode (Default when action parameters provided)
-    if ($Snapshot -or $PSCmdlet.ParameterSetName -eq "SnapshotSet" -or $Filter -or $Port -gt 0 -or $ListeningOnly -or $StartupOnly) {
+    # 9. Route: Snapshot / List Mode (Default when -Snapshot or other multi-process filters provided)
+    if ($Snapshot -or $Filter -or $StartupOnly) {
         Write-Log "Collecting listening network sockets and system autostart signatures..." Cyan
         $netMap = Get-ListeningNetworkMap
         $autostartMap = Get-AutostartMap
