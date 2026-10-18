@@ -120,6 +120,20 @@ Unblock-File -Path .\enable-hyper-v-remote-management-for-server.ps1
 
 ---
 
+## 📸 Screenshots
+
+### 1. Live Configuration (`-Enable`)
+Executing the complete automated configuration on the Hyper-V host (WinRM listener, CredSSP server role, network profile hardening, dedicated VPN firewall rules, and WinRM service restart):
+
+![Standard Run (Live Configuration)](assets/Standard_run.jpg)
+
+### 2. Diagnostic & Audit Mode (`-Status`)
+Read-only inspection of the active Hyper-V host state (WinRM service, Port 5985 listener status, CredSSP server authentication, and VPN firewall rule):
+
+![Status Run (Audit Mode)](assets/Status_run.jpg)
+
+---
+
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
