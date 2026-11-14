@@ -1,6 +1,6 @@
 <#
 ================================================================================
-  Script Name : enable-hyper-v-remote-management-for-server.ps1
+  Script Name : Enable-HyperVRemoteManagementForServer.ps1
   Author      : Roman Pindela
   Contact     : roman.pindela@gmail.com
   Version     : 1.0.0
@@ -53,8 +53,11 @@
        and automatically prompts for elevation while preserving CLI parameters.
     9. Detailed Audit Logging:
        Logs all operations with UTF-8 timestamps to:
-       C:\Logs\<yyyyMMdd_HHmmss>-enable-hyper-v-remote-management-for-server-<ComputerName>-<UserName>.logs
+       C:\Logs\<yyyyMMdd_HHmmss>-Enable-HyperVRemoteManagementForServer-<ComputerName>-<UserName>.logs
 ================================================================================
+#>
+
+<#
 .SYNOPSIS
     Configures a Hyper-V Server host for remote management via Hyper-V Manager,
     WinRM, and PowerShell Remoting in Workgroup and VPN environments.
@@ -77,7 +80,7 @@
     Aliases: -Configure, -Apply
 
 .PARAMETER SetPrivateNetworkProfile
-    Switch parameter. Switches all active network connection profiles
+    Boolean parameter. Switches all active network connection profiles
     (including WireGuard or VPN adapters) from 'Public' to 'Private'.
     Default: True (enabled by default for reliable remoting).
     Aliases: -SetPrivate
@@ -86,7 +89,7 @@
     Switch parameter. Skips execution of Configure-SMRemoting.exe even if present.
 
 .PARAMETER RestartWinRM
-    Switch parameter. Restarts the WinRM service after applying configuration.
+    Boolean parameter. Restarts the WinRM service after applying configuration.
     Default: True.
 
 .PARAMETER Status
@@ -107,7 +110,7 @@
 
 .PARAMETER LogPath
     Custom file path for the execution log file.
-    Default: C:\Logs\<yyyyMMdd_HHmmss>-enable-hyper-v-remote-management-for-server-<ComputerName>-<UserName>.logs
+    Default: C:\Logs\<yyyyMMdd_HHmmss>-Enable-HyperVRemoteManagementForServer-<ComputerName>-<UserName>.logs
     Aliases: -l, -Log
 
 .PARAMETER NoLog
@@ -118,23 +121,23 @@
     Aliases: -h
 
 .EXAMPLE
-    .\enable-hyper-v-remote-management-for-server.ps1
+    .\Enable-HyperVRemoteManagementForServer.ps1
     Displays the help guide, usage syntax, parameter reference, examples,
     version, and author information without requiring elevated privileges.
 
 .EXAMPLE
-    .\enable-hyper-v-remote-management-for-server.ps1 -Enable
+    .\Enable-HyperVRemoteManagementForServer.ps1 -Enable
     Executes the full server configuration: enables WinRM (-SkipNetworkProfileCheck),
     enables CredSSP Server role, sets network profiles to Private, creates explicit
     VPN firewall rules (TCP 5985, 5986, 135, 445, 2179), and restarts WinRM.
 
 .EXAMPLE
-    .\enable-hyper-v-remote-management-for-server.ps1 -Status
+    .\Enable-HyperVRemoteManagementForServer.ps1 -Status
     Displays a comprehensive audit of current WinRM listeners, CredSSP server role,
     network profiles, and firewall rules without making changes.
 
 .EXAMPLE
-    .\enable-hyper-v-remote-management-for-server.ps1 -Enable -DryRun
+    .\Enable-HyperVRemoteManagementForServer.ps1 -Enable -DryRun
     Simulates the server configuration in Dry-Run mode without altering the system.
 
 .NOTES
@@ -142,6 +145,7 @@
     Contact     : roman.pindela@gmail.com
     GitHub      : https://github.com/romanpindela/Windows-Server
     Version     : 1.0.0
+    License     : MIT
     Compatible  : Windows Server 2016/2019/2022/2025, Windows 10/11 Pro (EN/PL)
     Privileges  : Requires Administrator privileges (auto-elevates via UAC using SID).
 #>
@@ -195,8 +199,8 @@ $ErrorActionPreference = "Stop"
 # SCRIPT METADATA & CONFIGURATION
 # ==============================================================================
 $SCRIPT_INFO = @{
-    Name        = "enable-hyper-v-remote-management-for-server"
-    FileName    = "enable-hyper-v-remote-management-for-server.ps1"
+    Name        = "Enable-HyperVRemoteManagementForServer"
+    FileName    = "Enable-HyperVRemoteManagementForServer.ps1"
     Version     = "1.0.0"
     Author      = "Roman Pindela"
     Contact     = "roman.pindela@gmail.com"
@@ -353,15 +357,15 @@ DESCRIPTION:
 
 SYNTAX:
   # 1. Display Help (Default when run without parameters):
-  .\enable-hyper-v-remote-management-for-server.ps1 [-Help | -h]
+  .\Enable-HyperVRemoteManagementForServer.ps1 [-Help | -h]
 
   # 2. Configure Local Hyper-V Server Host (Live Mode):
-  .\enable-hyper-v-remote-management-for-server.ps1 -Enable
+  .\Enable-HyperVRemoteManagementForServer.ps1 -Enable
       [-SetPrivateNetworkProfile <`$true|`$false>] [-SkipConfigureSMRemoting]
       [-RestartWinRM <`$true|`$false>] [-DryRun]
 
   # 3. Audit Current Remote Management Host Configuration (Read-Only):
-  .\enable-hyper-v-remote-management-for-server.ps1 -Status
+  .\Enable-HyperVRemoteManagementForServer.ps1 -Status
 
 PARAMETERS:
   -Enable                     : Executes the host configuration workflow (WinRM,
@@ -379,20 +383,20 @@ PARAMETERS:
 
 PRACTICAL EXAMPLES:
   1. Display help, author, and version info:
-     .\enable-hyper-v-remote-management-for-server.ps1
+     .\Enable-HyperVRemoteManagementForServer.ps1
 
   2. Configure Hyper-V host for remote management (Live):
-     .\enable-hyper-v-remote-management-for-server.ps1 -Enable
+     .\Enable-HyperVRemoteManagementForServer.ps1 -Enable
 
   3. Simulate configuration in Dry-Run mode:
-     .\enable-hyper-v-remote-management-for-server.ps1 -Enable -DryRun
+     .\Enable-HyperVRemoteManagementForServer.ps1 -Enable -DryRun
 
   4. Audit current host configuration without changes:
-     .\enable-hyper-v-remote-management-for-server.ps1 -Status
+     .\Enable-HyperVRemoteManagementForServer.ps1 -Status
 
 FIRST RUN / UNBLOCKING NOTE:
   After downloading this script from GitHub, unblock it before running:
-     Unblock-File -Path .\enable-hyper-v-remote-management-for-server.ps1
+     Unblock-File -Path .\Enable-HyperVRemoteManagementForServer.ps1
 ================================================================================
 "@ -ForegroundColor Yellow
 }
@@ -810,8 +814,8 @@ Write-Log "`n-------------------------------------------------------------------
 Write-Log "  NEXT STEPS: CONNECTING FROM CLIENT WORKSTATION (Hyper-V Manager)" -Level STEP
 Write-Log "--------------------------------------------------------------------------------" -Level HEADER
 Write-Log "  From your client computer (Windows 10/11):" -Level INFO
-Write-Log "  1. Ensure the client is configured using enable-hyper-v-remote-management.ps1:" -Level DETAIL
-Write-Log "     .\enable-hyper-v-remote-management.ps1 -ServerName '$($finalAudit.ComputerName)' -ServerIP '<Host-IP>'" -Level DETAIL
+Write-Log "  1. Ensure the client is configured using Enable-HyperVRemoteManagement.ps1:" -Level DETAIL
+Write-Log "     .\Enable-HyperVRemoteManagement.ps1 -ServerName '$($finalAudit.ComputerName)' -ServerIP '<Host-IP>'" -Level DETAIL
 Write-Log "  2. Open Hyper-V Manager (virtmgmt.msc)." -Level DETAIL
 Write-Log "  3. Click 'Connect to Server...' -> 'Another computer:' -> enter '$($finalAudit.ComputerName)'." -Level SUCCESS
 Write-Log "  4. Check 'Connect as another user' -> 'Set User...' -> '$($finalAudit.ComputerName)\Administrator'." -Level SUCCESS
