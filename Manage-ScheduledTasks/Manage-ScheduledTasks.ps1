@@ -41,11 +41,31 @@
     Wildcard pattern to match against task names. Defaults to '*'.
 .PARAMETER Help
     Displays this help menu.
+.EXAMPLE
+    .\Manage-ScheduledTasks.ps1
+    Displays the help guide, syntax, and author information without triggering elevation.
+.EXAMPLE
+    .\Manage-ScheduledTasks.ps1 -Interactive
+    Launches the interactive console menu to inspect, search, filter, enable, and disable scheduled tasks.
+.EXAMPLE
+    .\Manage-ScheduledTasks.ps1 -ListOnly
+    Lists enabled non-Microsoft scheduled tasks and exits.
+.EXAMPLE
+    .\Manage-ScheduledTasks.ps1 -ListOnly -StateFilter Disabled -TriggerFilter Logon
+    Lists disabled Logon-triggered non-Microsoft tasks and exits.
+.EXAMPLE
+    .\Manage-ScheduledTasks.ps1 -DisableByName '*EdgeUpdate*'
+    Disables all scheduled tasks matching '*EdgeUpdate*' across all Task Scheduler folders.
+.EXAMPLE
+    .\Manage-ScheduledTasks.ps1 -EnableByName 'Printer Health Monitor'
+    Enables all scheduled tasks matching 'Printer Health Monitor' across all Task Scheduler folders.
 .NOTES
-    Author  : Roman Pindela
-    Email   : roman.pindela@gmail.com
-    GitHub  : https://github.com/romanpindela
-    Version : 2.8.1
+    Author     : Roman Pindela
+    Email      : roman.pindela@gmail.com
+    GitHub     : https://github.com/romanpindela
+    Repository : https://github.com/romanpindela/Windows-Server
+    Version    : 2.8.1
+    License    : MIT
 #>
 [CmdletBinding()]
 param (
@@ -75,7 +95,7 @@ param (
 
 function Show-ScriptHelp {
     Write-Host "================================================================================" -ForegroundColor Cyan;
-    Write-Host " manage-scheduled-tasks.ps1 - Version 2.8.1" -ForegroundColor Cyan;
+    Write-Host " Manage-ScheduledTasks.ps1 - Version 2.8.1" -ForegroundColor Cyan;
     Write-Host " Author  : Roman Pindela (roman.pindela@gmail.com)" -ForegroundColor Cyan;
     Write-Host " GitHub  : https://github.com/romanpindela" -ForegroundColor Cyan;
     Write-Host "================================================================================" -ForegroundColor Cyan;
@@ -86,19 +106,19 @@ function Show-ScriptHelp {
     Write-Host "  enabling/disabling by ID or name, and full list view.";
     Write-Host "";
     Write-Host "SYNTAX & PARAMETERS:";
-    Write-Host "  .\manage-scheduled-tasks.ps1 -Interactive";
+    Write-Host "  .\Manage-ScheduledTasks.ps1 -Interactive";
     Write-Host "      Launches interactive CLI console.";
     Write-Host "";
-    Write-Host "  .\manage-scheduled-tasks.ps1 -ListOnly [-StateFilter <All|Enabled|Disabled>] [-NamePattern '*query*']";
+    Write-Host "  .\Manage-ScheduledTasks.ps1 -ListOnly [-StateFilter <All|Enabled|Disabled>] [-NamePattern '*query*']";
     Write-Host "      Outputs filtered tasks to console and exits.";
     Write-Host "";
-    Write-Host "  .\manage-scheduled-tasks.ps1 -DisableByName '*Printer*'";
+    Write-Host "  .\Manage-ScheduledTasks.ps1 -DisableByName '*Printer*'";
     Write-Host "      Finds and disables tasks matching name pattern and exits.";
     Write-Host "";
-    Write-Host "  .\manage-scheduled-tasks.ps1 -EnableByName '*Printer*'";
+    Write-Host "  .\Manage-ScheduledTasks.ps1 -EnableByName '*Printer*'";
     Write-Host "      Finds and enables tasks matching name pattern and exits.";
     Write-Host "";
-    Write-Host "  .\manage-scheduled-tasks.ps1 -Help";
+    Write-Host "  .\Manage-ScheduledTasks.ps1 -Help";
     Write-Host "      Displays this help menu.";
     Write-Host "================================================================================" -ForegroundColor Cyan;
 };
@@ -237,7 +257,7 @@ function Get-FilteredTasks {
             continue;
         };
 
-        # 2. Pobranie pelnego polecenia
+        # 2. Retrieve full action command
         $actionSummary = @();
         if ($task.Actions -and$task.Actions.Count -gt 0) {
             for ($a = 0; $a -lt$task.Actions.Count; $a++) {$act = $task.Actions[$a];
@@ -251,9 +271,9 @@ function Get-FilteredTasks {
                 };
             };
         };
-        $actionDisplay = if ($actionSummary.Count -gt 0) {$actionSummary -join ' | ' } else { "(Brak polecenia)" };
+        $actionDisplay = if ($actionSummary.Count -gt 0) {$actionSummary -join ' | ' } else { "(No command)" };
 
-        # 3. FILTR WYSZUKIWANIA FRAZY (SearchQuery):
+        # 3. Search query filter (SearchQuery):
         if ($term -ne '') {
             $inName = ($task.TaskName -and ($task.TaskName.IndexOf($term, [System.StringComparison]::OrdinalIgnoreCase) -ge 0));
             $inPath = ($task.TaskPath -and ($task.TaskPath.IndexOf($term, [System.StringComparison]::OrdinalIgnoreCase) -ge 0));
@@ -275,13 +295,13 @@ function Get-FilteredTasks {
             };
         };
 
-        # 4. Pobranie i weryfikacja wyzwalaczy
+        # 4. Retrieve and match triggers
         $trigSummary = Get-DetailedTriggerSummary -Triggers$task.Triggers;
         if (-not (Test-TriggerMatch -TriggerSummary $trigSummary -SelectedFilter$CurrentTriggerFilter)) {
             continue;
         };
 
-        # 5. Informacje o czasach wykonania
+        # 5. Execution timestamps
         $info =$null;
         try {
             $info =$task | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue;
@@ -404,16 +424,16 @@ function Render-TwoLineTable {
         $nextStr  = ($t.NextRun).PadRight(18);
         $lastStr  = ($t.LastRun).PadRight(18);
 
-        # WIERSZ 1
+        # LINE 1
         Write-Host "${cCyan}${nrStr}${cReset} ${colStatus}${stateStr}${cReset}${colType}${typeStr}${cReset}${cMagenta}${trigStr}${cReset}${cCyan}${nameStr}${cReset} ${colNext}${nextStr}${cReset}${cDarkGry}${lastStr}${cReset}";
 
-        # WIERSZ 2: Command
+        # LINE 2: Command
         Write-Host "       ↳ Command    : ${cGray}$($t.Command)${cReset}";
 
-        # WIERSZ 3: Description
+        # LINE 3: Description
         Write-Host "       ↳ Description: ${cDarkCyn}$($t.Description)${cReset}";
 
-        # WIERSZ 4: Separator
+        # LINE 4: Separator
         Write-Host ("-" * 125) -ForegroundColor DarkGray;
     };
 };
@@ -700,13 +720,13 @@ if ($Help -or ($PSBoundParameters.Count -eq 0)) {
 
 Assert-AdministratorPrivileges;
 
-# Akcja z CLI: Wylaczenie po nazwie
+# CLI action: Disable tasks by name
 if ($DisableByName) {
     Invoke-TaskActionByName -Pattern $DisableByName -Action 'Disable';
     Exit 0;
 };
 
-# Akcja z CLI: Wlaczenie po nazwie
+# CLI action: Enable tasks by name
 if ($EnableByName) {
     Invoke-TaskActionByName -Pattern $EnableByName -Action 'Enable';
     Exit 0;
