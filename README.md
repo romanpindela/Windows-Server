@@ -1,0 +1,60 @@
+# Windows-Server
+
+A curated collection of enterprise-grade PowerShell automation, diagnostics, and administration scripts for **Windows Server** (2016 / 2019 / 2022 / 2025) and Windows administrative environments.
+
+All scripts follow standardized `Verb-Noun` PascalCase naming, provide safe zero-parameter help (`-Help` / `-h`), support language-independent UAC privilege verification via Windows SID (`S-1-5-32-544`), and include dedicated documentation in each script directory.
+
+---
+
+## Script Catalog
+
+| Script Name | Description | Problem Solved | Category Tag | Permissions |
+| :--- | :--- | :--- | :--- | :--- |
+| [Enable-HyperVRemoteManagementForServer](hyper-v/Enable-HyperVRemoteManagementForServer/README.md) | Automates host-side WinRM, CredSSP Server, network profile, and Windows Firewall configuration for remote Hyper-V management over LAN and VPN. | Resolves WinRM `Public` network profile errors, `LocalSubnet` firewall blocks over VPN tunnels, and missing CredSSP Server configuration on standalone Workgroup Hyper-V hosts. | `Hyper-V` | `Admin` |
+| [Manage-Processes](Manage-Processes/README.md) | Provides interactive and CLI process diagnostics, RAM/CPU/Disk I/O monitoring, autostart detection, TCP/UDP port-blocker correlation, and safe process termination. | Eliminates manual correlation across Task Manager, `netstat`, services, Registry, and Task Scheduler when identifying resource hogs, persistence items, or services blocking network ports. | `Process Management` | `Admin` |
+| [Manage-ScheduledTasks](Manage-ScheduledTasks/README.md) | Delivers an interactive and CLI flat-view manager for Windows Scheduled Tasks with real-time search, trigger/state filtering, and batch enable/disable by ID or wildcard name. | Overcomes deep folder nesting in Task Scheduler (`taskschd.msc`) to quickly audit upcoming tasks chronologically and toggle tasks across folders in bulk. | `Scheduled Tasks` | `Admin` |
+
+---
+
+## Repository Structure
+
+```text
+Windows-Server/
+├── hyper-v/
+│   └── Enable-HyperVRemoteManagementForServer/
+│       ├── assets/
+│       ├── Enable-HyperVRemoteManagementForServer.ps1
+│       └── README.md
+├── Manage-Processes/
+│   ├── assets/
+│   ├── Manage-Processes.ps1
+│   └── README.md
+├── Manage-ScheduledTasks/
+│   ├── assets/
+│   ├── Manage-ScheduledTasks.ps1
+│   └── README.md
+└── README.md
+```
+
+---
+
+## Quick Start
+
+1. Navigate to the desired script directory and unblock the downloaded `.ps1` file if required:
+   ```powershell
+   Unblock-File -Path .\<ScriptName>.ps1
+   ```
+2. Run any script without parameters (or with `-Help`) to inspect its built-in documentation, syntax, and examples safely before execution:
+   ```powershell
+   .\<ScriptName>.ps1 -Help
+   ```
+
+---
+
+## Author
+
+- **Author:** Roman Pindela
+- **Email:** [roman.pindela@gmail.com](mailto:roman.pindela@gmail.com)
+- **GitHub:** [https://github.com/romanpindela](https://github.com/romanpindela)
+- **Repository:** [https://github.com/romanpindela/Windows-Server](https://github.com/romanpindela/Windows-Server)
+- **License:** MIT
