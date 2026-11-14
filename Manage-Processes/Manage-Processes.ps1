@@ -1,6 +1,6 @@
 <#
 ================================================================================
-  Script Name : manage-processes.ps1
+  Script Name : Manage-Processes.ps1
   Author      : Roman Pindela
   Contact     : roman.pindela@gmail.com
   GitHub      : https://github.com/romanpindela
@@ -37,12 +37,15 @@
     syntax, and practical usage examples.
 
 ================================================================================
+#>
+
+<#
 .SYNOPSIS
     Advanced process inspection, resource monitoring, autostart detection,
     network socket & port blocker diagnostics, and process lifecycle management tool.
 
 .DESCRIPTION
-    manage-processes.ps1 delivers comprehensive process management and diagnostics.
+    Manage-Processes.ps1 delivers comprehensive process management and diagnostics.
     Designed for system administrators, security analysts, and power users,
     it correlates running processes with resource metrics (CPU, RAM, Disk I/O),
     listening network ports (TCP/UDP), and persistence/startup configurations
@@ -124,71 +127,73 @@
     Alias: -Log.
 
 .EXAMPLE
-    .\manage-processes.ps1
+    .\Manage-Processes.ps1
     Displays the help guide, author information, and syntax overview (default safe behavior).
 
 .EXAMPLE
-    .\manage-processes.ps1 -Help
+    .\Manage-Processes.ps1 -Help
     Displays detailed help guide, parameter documentation, and examples.
 
 .EXAMPLE
-    .\manage-processes.ps1 -Port 8080
+    .\Manage-Processes.ps1 -Port 8080
     Checks if port 8080 is free, or immediately identifies the process/service blocking it.
 
 .EXAMPLE
-    .\manage-processes.ps1 -Port 443
+    .\Manage-Processes.ps1 -Port 443
     Finds which web server (IIS, Apache, Nginx) or service is listening on HTTPS port 443.
 
 .EXAMPLE
-    .\manage-processes.ps1 -Port 1433 -KillPort -Force
+    .\Manage-Processes.ps1 -Port 1433 -KillPort -Force
     Forcefully terminates the process blocking SQL Server port 1433 to release the socket.
 
 .EXAMPLE
-    .\manage-processes.ps1 -ListeningOnly
+    .\Manage-Processes.ps1 -ListeningOnly
     Displays comprehensive overview of all listening network ports (TCP & UDP) with
     owning PIDs, process names, hosted Windows services, versions, and executable paths.
 
 .EXAMPLE
-    .\manage-processes.ps1 -Interactive
+    .\Manage-Processes.ps1 -Interactive
     Launches interactive CLI console with search, filtering, and process controls.
 
 .EXAMPLE
-    .\manage-processes.ps1 -Snapshot
+    .\Manage-Processes.ps1 -Snapshot
     Takes a one-off snapshot of all running processes sorted by Memory.
 
 .EXAMPLE
-    .\manage-processes.ps1 -Snapshot -Filter "*chrome*"
+    .\Manage-Processes.ps1 -Snapshot -Filter "*chrome*"
     Lists all active Google Chrome processes with memory, CPU, and Disk I/O details.
 
 .EXAMPLE
-    .\manage-processes.ps1 -Snapshot -StartupOnly
+    .\Manage-Processes.ps1 -Snapshot -StartupOnly
     Lists all active processes configured to start on boot, logon, or task scheduler.
 
 .EXAMPLE
-    .\manage-processes.ps1 -Snapshot -SortBy CPU -Top 10
+    .\Manage-Processes.ps1 -Snapshot -SortBy CPU -Top 10
     Displays the top 10 processes consuming the most CPU time.
 
 .EXAMPLE
-    .\manage-processes.ps1 -Terminate 5412
+    .\Manage-Processes.ps1 -Terminate 5412
     Gracefully terminates process with PID 5412.
 
 .EXAMPLE
-    .\manage-processes.ps1 -Kill "notepad" -Force
+    .\Manage-Processes.ps1 -Kill "notepad" -Force
     Forcefully terminates all processes named 'notepad' without prompt.
 
 .EXAMPLE
-    .\manage-processes.ps1 -Kill 8120 -KillTree -Force
+    .\Manage-Processes.ps1 -Kill 8120 -KillTree -Force
     Forcefully terminates process 8120 and all of its spawned child processes.
 
 .EXAMPLE
-    .\manage-processes.ps1 -Port 8080 -AsJson
+    .\Manage-Processes.ps1 -Port 8080 -AsJson
     Exports port 8080 diagnostic and blocking process metadata to JSON format.
 
 .NOTES
     Author      : Roman Pindela
     Contact     : roman.pindela@gmail.com
     GitHub      : https://github.com/romanpindela
+    Repository  : https://github.com/romanpindela/Windows-Server
     Version     : 1.1.0
+    License     : MIT
     Compatible  : Windows 10, Windows 11, Windows Server 2016/2019/2022/2025
     Privileges  : Requires Administrator privileges for inspecting complete system
                   process details, listening sockets, and process termination.
@@ -279,7 +284,7 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 # ==============================================================================
 $SCRIPT_INFO = @{
     Name        = "Manage-Processes"
-    ScriptFile  = "manage-processes.ps1"
+    ScriptFile  = "Manage-Processes.ps1"
     Version     = "1.1.0"
     Author      = "Roman Pindela"
     Contact     = "roman.pindela@gmail.com"
@@ -955,8 +960,8 @@ function Find-BlockingPortProcess {
     else {
         if (-not $AsJson) {
             Write-Host (" Tip: To terminate the process blocking port {0}, run:" -f $TargetPort) -ForegroundColor Yellow
-            Write-Host ("   .\manage-processes.ps1 -Port {0} -KillPort -Force" -f $TargetPort) -ForegroundColor Yellow
-            Write-Host ("   .\manage-processes.ps1 -Port {0} -KillPort -KillTree -Force" -f $TargetPort) -ForegroundColor Yellow
+            Write-Host ("   .\$($SCRIPT_INFO.ScriptFile) -Port {0} -KillPort -Force" -f $TargetPort) -ForegroundColor Yellow
+            Write-Host ("   .\$($SCRIPT_INFO.ScriptFile) -Port {0} -KillPort -KillTree -Force" -f $TargetPort) -ForegroundColor Yellow
             Write-Host ""
         }
     }
