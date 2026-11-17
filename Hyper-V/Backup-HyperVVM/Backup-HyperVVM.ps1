@@ -3,15 +3,16 @@
   Script Name : Backup-HyperVVM.ps1
   Author      : Roman Pindela
   Contact     : roman.pindela@gmail.com
-  Version     : 1.0.0
+  Version     : 1.1.0
   Release Date: 2026-11-17
   License     : MIT
   Repository  : https://github.com/romanpindela/Windows-Server
 
   DESCRIPTION:
-    Enterprise-grade PowerShell automation tool for creating complete,
-    self-contained, AES-256 password-protected ZIP backups of Hyper-V virtual
-    machines on Windows Server (2016/2019/2022/2025) and Windows 10/11 Pro.
+    100% native Microsoft PowerShell/.NET automation tool for creating complete,
+    self-contained, AES-256-CBC + HMAC-SHA256 encrypted ZIP backups (.zip.aes)
+    of Hyper-V virtual machines on Windows Server (2016/2019/2022/2025) and
+    Windows 10/11 Pro — with zero third-party dependencies.
 
     Key Capabilities:
     1. Zero-Parameter Interactive Help (-Help / -h):
@@ -28,11 +29,12 @@
        Virtual Hard Disks/*.vhdx, Snapshots/*), hardware/vSwitch metadata
        (VM-Metadata.json), step-by-step RESTORE-INSTRUCTIONS.txt, and copy
        execution logs (Backup-Copy.log).
-    4. Secure AES-256 Encrypted ZIP Archiving:
-       Accepts a [SecureString] password (-ZipPassword) or prompts securely via
-       Read-Host -AsSecureString. Uses 7-Zip (7z.exe) with AES-256 ZIP
-       encryption, verifies archive integrity, and securely clears in-memory
-       BSTR credentials in finally {}.
+    4. 100% Native .NET Zip64 Compression & AES-256 + HMAC-SHA256 Encryption:
+       Uses System.IO.Compression.ZipFile (supports >2 GB VHDX files) combined
+       with streaming AES-256-CBC + HMAC-SHA256 (PBKDF2 100,000 iterations).
+       Accepts [SecureString] (-ZipPassword) or prompts securely via
+       Read-Host -AsSecureString, verifies HMAC integrity, and zeroes BSTR
+       credentials in finally {}.
     5. Multi-Language UAC Auto-Elevation:
        Verifies Administrator privileges using the well-known Windows SID
        (S-1-5-32-544 / BuiltInAdministratorsSid) for 100% compatibility across
@@ -45,11 +47,12 @@
 
 <#
 .SYNOPSIS
-    Creates a complete, AES-256 password-protected ZIP backup of one or more
-    Hyper-V virtual machines in Hot or Cold mode.
+    Creates a complete, native .NET AES-256 encrypted ZIP backup (.zip.aes) of
+    one or more Hyper-V virtual machines in Hot or Cold mode.
 
 .DESCRIPTION
-    Automates full Hyper-V virtual machine backup on a Hyper-V host:
+    Automates full Hyper-V virtual machine backup on a Hyper-V host using only
+    built-in Microsoft Windows/PowerShell/.NET components:
     - Validates Administrator privileges via SID S-1-5-32-544.
     - Supports single or multiple VMs via -VMName or pipeline input.
     - Supports Hot backup (live Export-VM) and Cold backup (graceful shutdown,
@@ -59,8 +62,8 @@
       backed-up VM inside the archive.
     - Includes Backup-Copy.log inside the archive and writes full audit logs
       to C:\Logs\.
-    - Compresses the entire package into an AES-256 encrypted .zip archive in
-      C:\DANE\Backup using 7-Zip and verifies archive integrity.
+    - Compresses via .NET ZipFile (Zip64) and encrypts with AES-256-CBC +
+      HMAC-SHA256 into C:\DANE\Backup\<VMName>_<timestamp>.zip.aes.
 
 .PARAMETER VMName
     One or more Hyper-V virtual machine names to back up. Supports pipeline input.
@@ -73,7 +76,7 @@
     Aliases: -Mode
 
 .PARAMETER BackupPath
-    Destination directory for the final encrypted ZIP backup archives.
+    Destination directory for the final encrypted .zip.aes backup archives.
     Default: 'C:\DANE\Backup'.
 
 .PARAMETER ZipPassword
@@ -82,11 +85,8 @@
     Aliases: -Password
 
 .PARAMETER CompressionLevel
-    7-Zip compression level from 0 (Store/Copy) to 9 (Ultra). Default: 5.
-
-.PARAMETER SevenZipPath
-    Optional explicit path to 7z.exe. Auto-detected from PATH or standard
-    Program Files locations if omitted.
+    .NET ZipFile compression level: 'Optimal', 'Fastest', or 'NoCompression'.
+    Default: 'Optimal'.
 
 .PARAMETER KeepStopped
     Switch parameter (Cold mode only). Leaves the VM powered off after backup
@@ -102,10 +102,10 @@
 
 .PARAMETER KeepUncompressed
     Switch parameter. Retains the uncompressed staging directory after creating
-    and verifying the ZIP archive.
+    and verifying the encrypted archive.
 
 .PARAMETER SkipArchiveVerification
-    Switch parameter. Skips the post-compression '7z.exe t' integrity check.
+    Switch parameter. Skips the post-encryption HMAC-SHA256 verification pass.
 
 .PARAMETER LogPath
     Custom file path for the execution log file.
@@ -130,20 +130,20 @@
     Displays the built-in help screen without elevating or modifying anything.
 
 .EXAMPLE
-    $pwd = Read-Host "Enter ZIP Password" -AsSecureString
+    $pwd = Read-Host "Enter Encryption Password" -AsSecureString
     C:\Scripts\Backup-HyperVVM.ps1 -VMName "DC01" -BackupMode Cold -ZipPassword $pwd
     Performs a Cold backup of DC01, includes restore instructions and copy logs,
-    and saves an AES-256 encrypted ZIP archive to C:\DANE\Backup.
+    and saves an AES-256 encrypted .zip.aes archive to C:\DANE\Backup.
 
 .EXAMPLE
-    C:\Scripts\Backup-HyperVVM.ps1 -VMName "APP01","SQL01" -BackupMode Hot -CompressionLevel 3
-    Performs a Hot backup of APP01 and SQL01, prompting securely for the ZIP password.
+    C:\Scripts\Backup-HyperVVM.ps1 -VMName "APP01","SQL01" -BackupMode Hot -CompressionLevel Fastest
+    Performs a Hot backup of APP01 and SQL01, prompting securely for the password.
 
 .NOTES
     Author       : Roman Pindela
     Email        : roman.pindela@gmail.com
     GitHub       : https://github.com/romanpindela
-    Version      : 1.0.0
+    Version      : 1.1.0
     Last Modified: 2026-11-17
     Deployment   : Recommended location on Hyper-V host: C:\Scripts\Backup-HyperVVM.ps1
 #>
@@ -169,11 +169,8 @@ param (
     [SecureString]$ZipPassword,
 
     [Parameter()]
-    [ValidateRange(0, 9)]
-    [int]$CompressionLevel = 5,
-
-    [Parameter()]
-    [string]$SevenZipPath,
+    [ValidateSet('Optimal', 'Fastest', 'NoCompression')]
+    [string]$CompressionLevel = 'Optimal',
 
     [Parameter()]
     [switch]$KeepStopped,
@@ -214,7 +211,7 @@ begin {
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
 
-    $ScriptVersion = '1.0.0'
+    $ScriptVersion = '1.1.0'
     $ScriptName = 'Backup-HyperVVM'
     $RunTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 
@@ -227,28 +224,28 @@ begin {
         Write-Host ''
         Write-Host '================================================================================' -ForegroundColor Cyan
         Write-Host "  $ScriptName.ps1  (v$ScriptVersion)" -ForegroundColor White
-        Write-Host '  Complete Hyper-V VM Hot/Cold Backup with AES-256 Encrypted ZIP & Restore Guide' -ForegroundColor Gray
+        Write-Host '  100% Native Hyper-V VM Hot/Cold Backup with .NET AES-256 Encrypted ZIP' -ForegroundColor Gray
         Write-Host '================================================================================' -ForegroundColor Cyan
         Write-Host ''
         Write-Host 'SYNTAX:' -ForegroundColor Yellow
         Write-Host '  .\Backup-HyperVVM.ps1 -VMName <string[]> [-BackupMode Hot|Cold]' -ForegroundColor White
         Write-Host '                        [-BackupPath <string>] [-ZipPassword <SecureString>]' -ForegroundColor White
-        Write-Host '                        [-CompressionLevel 0..9] [-KeepStopped] [-ForceShutdown]' -ForegroundColor White
-        Write-Host '                        [-KeepUncompressed] [-LogPath <string>] [-NoLog] [-PassThru]' -ForegroundColor White
+        Write-Host '                        [-CompressionLevel Optimal|Fastest|NoCompression]' -ForegroundColor White
+        Write-Host '                        [-KeepStopped] [-ForceShutdown] [-KeepUncompressed]' -ForegroundColor White
+        Write-Host '                        [-LogPath <string>] [-NoLog] [-PassThru]' -ForegroundColor White
         Write-Host '  .\Backup-HyperVVM.ps1 [-Help | -h]' -ForegroundColor White
         Write-Host ''
         Write-Host 'PARAMETERS:' -ForegroundColor Yellow
         Write-Host '  -VMName <string[]>          Target Hyper-V VM name(s) (aliases: -Name; pipeline supported)'
         Write-Host '  -BackupMode <Hot|Cold>      Hot = live export; Cold = stop VM, export, restart (default: Hot)'
-        Write-Host '  -BackupPath <string>        Target folder for encrypted ZIPs (default: C:\DANE\Backup)'
+        Write-Host '  -BackupPath <string>        Target folder for encrypted .zip.aes (default: C:\DANE\Backup)'
         Write-Host '  -ZipPassword <SecureString> Encryption password; prompts securely if omitted'
-        Write-Host '  -CompressionLevel <0-9>     7-Zip compression level (default: 5)'
-        Write-Host '  -SevenZipPath <string>      Explicit path to 7z.exe (auto-detected by default)'
+        Write-Host '  -CompressionLevel <enum>    Optimal, Fastest, or NoCompression (default: Optimal)'
         Write-Host '  -KeepStopped                (Cold mode) Do not restart VM after backup'
         Write-Host '  -ShutdownTimeoutSeconds     Graceful shutdown wait in seconds (default: 300)'
         Write-Host '  -ForceShutdown              Force TurnOff if graceful shutdown times out'
-        Write-Host '  -KeepUncompressed           Keep staging folder after ZIP creation'
-        Write-Host '  -SkipArchiveVerification    Skip 7-Zip archive integrity test'
+        Write-Host '  -KeepUncompressed           Keep staging folder after archive creation'
+        Write-Host '  -SkipArchiveVerification    Skip post-encryption HMAC-SHA256 integrity test'
         Write-Host '  -LogPath <string>           Custom log path (default: C:\Logs\<timestamp>-Backup-HyperVVM-*.logs)'
         Write-Host '  -NoLog                      Disable disk logging'
         Write-Host '  -PassThru                   Output structured [PSCustomObject] results to pipeline'
@@ -256,7 +253,7 @@ begin {
         Write-Host ''
         Write-Host 'SECURE PASSWORD EXAMPLES:' -ForegroundColor Yellow
         Write-Host '  # Interactive secure prompt (recommended):' -ForegroundColor DarkGray
-        Write-Host '  $pwd = Read-Host "Enter ZIP Password" -AsSecureString' -ForegroundColor Green
+        Write-Host '  $pwd = Read-Host "Enter Encryption Password" -AsSecureString' -ForegroundColor Green
         Write-Host '  C:\Scripts\Backup-HyperVVM.ps1 -VMName "DC01" -BackupMode Cold -ZipPassword $pwd' -ForegroundColor Green
         Write-Host ''
         Write-Host '  # Scheduled Task (DPAPI per-user/machine encrypted secret):' -ForegroundColor DarkGray
@@ -362,44 +359,9 @@ begin {
         }
     }
 
-    function Resolve-SevenZipExecutable {
+    function ConvertFrom-SecureStringToBytes {
         [CmdletBinding()]
-        [OutputType([string])]
-        param (
-            [Parameter()]
-            [string]$ExplicitPath
-        )
-
-        if (-not [string]::IsNullOrWhiteSpace($ExplicitPath)) {
-            if (Test-Path -Path $ExplicitPath -PathType Leaf) {
-                return (Resolve-Path -Path $ExplicitPath).Path
-            }
-            throw "7-Zip executable not found at specified path: $ExplicitPath"
-        }
-
-        $cmd = Get-Command -Name '7z.exe' -ErrorAction SilentlyContinue
-        if ($null -ne $cmd) {
-            return $cmd.Source
-        }
-
-        $candidates = @(
-            "$env:ProgramFiles\7-Zip\7z.exe",
-            "${env:ProgramFiles(x86)}\7-Zip\7z.exe",
-            "$env:ProgramData\chocolatey\bin\7z.exe"
-        )
-
-        foreach ($candidate in $candidates) {
-            if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -Path $candidate -PathType Leaf)) {
-                return $candidate
-            }
-        }
-
-        throw '7-Zip (7z.exe) is required for AES-256 password-protected ZIP creation but was not found. Install 7-Zip or pass -SevenZipPath.'
-    }
-
-    function ConvertFrom-SecureStringToPlainText {
-        [CmdletBinding()]
-        [OutputType([string])]
+        [OutputType([byte[]])]
         param (
             [Parameter(Mandatory = $true)]
             [SecureString]$SecureValue
@@ -408,9 +370,11 @@ begin {
         $bstr = [System.IntPtr]::Zero
         try {
             $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureValue)
-            return [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+            $plain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+            return ,([byte[]][System.Text.Encoding]::UTF8.GetBytes($plain))
         }
         finally {
+            $plain = $null
             if ($bstr -ne [System.IntPtr]::Zero) {
                 [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
             }
@@ -430,20 +394,20 @@ begin {
 
         $disks = @(Get-VMHardDiskDrive -VMName $VM.Name | ForEach-Object {
                 [PSCustomObject]@{
-                    ControllerType   = $_.ControllerType.ToString()
-                    ControllerNumber = $_.ControllerNumber
+                    ControllerType     = $_.ControllerType.ToString()
+                    ControllerNumber   = $_.ControllerNumber
                     ControllerLocation = $_.ControllerLocation
-                    Path             = $_.Path
+                    Path               = $_.Path
                 }
             })
 
         $nics = @(Get-VMNetworkAdapter -VMName $VM.Name | ForEach-Object {
                 [PSCustomObject]@{
-                    Name            = $_.Name
-                    SwitchName      = $_.SwitchName
-                    MacAddress      = $_.MacAddress
-                    DynamicMac      = $_.DynamicMacAddressEnabled
-                    VlanSetting     = (Get-VMNetworkAdapterVlan -VMNetworkAdapter $_ -ErrorAction SilentlyContinue).OperationMode
+                    Name        = $_.Name
+                    SwitchName  = $_.SwitchName
+                    MacAddress  = $_.MacAddress
+                    DynamicMac  = $_.DynamicMacAddressEnabled
+                    VlanSetting = (Get-VMNetworkAdapterVlan -VMNetworkAdapter $_ -ErrorAction SilentlyContinue).OperationMode
                 }
             })
 
@@ -456,19 +420,19 @@ begin {
             })
 
         $metadata = [PSCustomObject]@{
-            VMName              = $VM.Name
-            VMId                = $VM.Id.ToString()
-            Generation          = $VM.Generation
-            Version             = $VM.Version
-            ProcessorCount      = $VM.ProcessorCount
-            MemoryStartupBytes  = $VM.MemoryStartup
+            VMName               = $VM.Name
+            VMId                 = $VM.Id.ToString()
+            Generation           = $VM.Generation
+            Version              = $VM.Version
+            ProcessorCount       = $VM.ProcessorCount
+            MemoryStartupBytes   = $VM.MemoryStartup
             DynamicMemoryEnabled = $VM.DynamicMemoryEnabled
-            OriginalState       = $VM.State.ToString()
-            HostComputerName    = $env:COMPUTERNAME
-            ExportedAtUtc       = (Get-Date).ToUniversalTime().ToString('o')
-            HardDisks           = $disks
-            NetworkAdapters     = $nics
-            Checkpoints         = $snapshots
+            OriginalState        = $VM.State.ToString()
+            HostComputerName     = $env:COMPUTERNAME
+            ExportedAtUtc        = (Get-Date).ToUniversalTime().ToString('o')
+            HardDisks            = $disks
+            NetworkAdapters      = $nics
+            Checkpoints          = $snapshots
         }
 
         $metadata | ConvertTo-Json -Depth 5 | Set-Content -Path $OutputJsonPath -Encoding UTF8
@@ -522,7 +486,7 @@ begin {
   Original State   : $($Metadata.OriginalState)
   Generation       : $($Metadata.Generation)
   Exported (UTC)   : $($Metadata.ExportedAtUtc)
-  Archive File     : $ArchiveFileName
+  Encrypted File   : $ArchiveFileName (Native .NET AES-256-CBC + HMAC-SHA256)
 
   ORIGINAL NETWORK ADAPTERS:
 $nicSummary
@@ -531,11 +495,11 @@ $nicSummary
 $diskSummary
 ================================================================================
 
-1. EXTRACT THE BACKUP ARCHIVE
+1. DECRYPT & EXTRACT THE BACKUP ARCHIVE (100% Native PowerShell)
 --------------------------------------------------------------------------------
-Extract the AES-256 encrypted ZIP archive using 7-Zip (built-in Windows Explorer
-cannot decrypt AES-256 ZIP archives):
-  7z.exe x "$ArchiveFileName" -o"C:\Restore\$vmName"
+Use Decrypt-HyperVBackup.ps1 (located in C:\DANE\Backup\ or C:\Scripts\):
+
+  .\Decrypt-HyperVBackup.ps1 -ArchivePath "C:\DANE\Backup\$ArchiveFileName" -DestinationPath "C:\Restore\$vmName"
 
 Inside "C:\Restore\$vmName\$vmName\" you will find:
   - Virtual Machines\      (.vmcx, .vmrs, .vmgs configuration files)
@@ -584,72 +548,183 @@ VM ID collisions:
         Set-Content -Path $OutputPath -Value $content -Encoding UTF8
     }
 
-    function Compress-BackupWithPassword {
+    function Test-EncryptedArchiveHmac {
         [CmdletBinding()]
         param (
             [Parameter(Mandatory = $true)]
-            [string]$SevenZipExe,
+            [string]$ArchivePath,
 
+            [Parameter(Mandatory = $true)]
+            [byte[]]$PasswordBytes
+        )
+
+        $inStream = $null
+        $kdf = $null
+        $hmac = $null
+        try {
+            $inStream = [System.IO.File]::OpenRead($ArchivePath)
+            if ($inStream.Length -lt 88) {
+                throw 'Encrypted archive is smaller than minimum valid header size.'
+            }
+
+            $inStream.Position = 8
+            $salt = New-Object byte[] 32
+            [void]$inStream.Read($salt, 0, 32)
+
+            $kdf = [System.Security.Cryptography.Rfc2898DeriveBytes]::new($PasswordBytes, $salt, 100000)
+            [void]$kdf.GetBytes(32)
+            $hmacKey = $kdf.GetBytes(32)
+
+            $storedHmac = New-Object byte[] 32
+            $inStream.Position = $inStream.Length - 32
+            [void]$inStream.Read($storedHmac, 0, 32)
+
+            $hmac = [System.Security.Cryptography.HMACSHA256]::new($hmacKey)
+            $inStream.Position = 0
+            $remaining = $inStream.Length - 32
+            $buffer = New-Object byte[] (1024 * 1024)
+            while ($remaining -gt 0) {
+                $toRead = [int][Math]::Min($buffer.Length, $remaining)
+                $read = $inStream.Read($buffer, 0, $toRead)
+                if ($read -le 0) { break }
+                [void]$hmac.TransformBlock($buffer, 0, $read, $buffer, 0)
+                $remaining -= $read
+            }
+            [void]$hmac.TransformFinalBlock([byte[]]@(), 0, 0)
+            $computed = $hmac.Hash
+
+            for ($i = 0; $i -lt 32; $i++) {
+                if ($computed[$i] -ne $storedHmac[$i]) {
+                    throw 'Post-encryption HMAC-SHA256 integrity verification failed.'
+                }
+            }
+        }
+        finally {
+            if ($null -ne $hmac) { $hmac.Dispose() }
+            if ($null -ne $kdf) { $kdf.Dispose() }
+            if ($null -ne $inStream) { $inStream.Dispose() }
+        }
+    }
+
+    function Compress-AndEncryptBackupNative {
+        [CmdletBinding()]
+        param (
             [Parameter(Mandatory = $true)]
             [string]$SourceDirectory,
 
             [Parameter(Mandatory = $true)]
-            [string]$DestinationZipPath,
+            [string]$DestinationEncryptedPath,
 
             [Parameter(Mandatory = $true)]
             [SecureString]$Password,
 
             [Parameter(Mandatory = $true)]
-            [int]$Level,
+            [string]$Level,
 
             [Parameter()]
             [switch]$SkipVerify
         )
 
-        $plainPwd = $null
+        $tempZipPath = "${DestinationEncryptedPath}.tmp.zip"
+        $passwordBytes = $null
+        $rng = $null
+        $kdf = $null
+        $aes = $null
+        $inStream = $null
+        $outStream = $null
+        $cryptoStream = $null
+        $hmac = $null
+
         try {
-            $plainPwd = ConvertFrom-SecureStringToPlainText -SecureValue $Password
-            if ([string]::IsNullOrEmpty($plainPwd)) {
-                throw 'ZIP encryption password cannot be empty.'
+            $passwordBytes = ConvertFrom-SecureStringToBytes -SecureValue $Password
+            if ($passwordBytes.Length -eq 0) {
+                throw 'Encryption password cannot be empty.'
             }
 
-            if (Test-Path -Path $DestinationZipPath) {
-                Remove-Item -Path $DestinationZipPath -Force
+            if (Test-Path -Path $tempZipPath) {
+                Remove-Item -Path $tempZipPath -Force
+            }
+            if (Test-Path -Path $DestinationEncryptedPath) {
+                Remove-Item -Path $DestinationEncryptedPath -Force
             }
 
-            $sourceGlob = Join-Path -Path $SourceDirectory -ChildPath '*'
-            $addArgs = @(
-                'a',
-                '-tzip',
-                '-mem=AES256',
-                "-mx=$Level",
-                "-p$plainPwd",
-                $DestinationZipPath,
-                $sourceGlob
-            )
+            $zipLevel = [System.IO.Compression.CompressionLevel]::$Level
+            [System.IO.Compression.ZipFile]::CreateFromDirectory($SourceDirectory, $tempZipPath, $zipLevel, $false)
 
-            $addOutput = & $SevenZipExe @addArgs 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                $errDetail = ($addOutput | Out-String).Trim()
-                throw "7-Zip compression failed with exit code $LASTEXITCODE. Details: $errDetail"
+            # Generate random 32-byte salt and 16-byte IV
+            $salt = New-Object byte[] 32
+            $iv = New-Object byte[] 16
+            $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+            $rng.GetBytes($salt)
+            $rng.GetBytes($iv)
+
+            $kdf = [System.Security.Cryptography.Rfc2898DeriveBytes]::new($passwordBytes, $salt, 100000)
+            $aesKey = $kdf.GetBytes(32)
+            $hmacKey = $kdf.GetBytes(32)
+
+            $magicHeader = [System.Text.Encoding]::ASCII.GetBytes('HYPVAES1')
+
+            $aes = [System.Security.Cryptography.Aes]::Create()
+            $aes.KeySize = 256
+            $aes.Mode = [System.Security.Cryptography.CipherMode]::CBC
+            $aes.Padding = [System.Security.Cryptography.PaddingMode]::PKCS7
+            $aes.Key = $aesKey
+            $aes.IV = $iv
+
+            $outStream = [System.IO.File]::Create($DestinationEncryptedPath)
+            $outStream.Write($magicHeader, 0, $magicHeader.Length)
+            $outStream.Write($salt, 0, $salt.Length)
+            $outStream.Write($iv, 0, $iv.Length)
+
+            $encryptor = $aes.CreateEncryptor()
+            $cryptoStream = [System.Security.Cryptography.CryptoStream]::new($outStream, $encryptor, [System.Security.Cryptography.CryptoStreamMode]::Write)
+            $inStream = [System.IO.File]::OpenRead($tempZipPath)
+
+            $buffer = New-Object byte[] (1024 * 1024)
+            while (($read = $inStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                $cryptoStream.Write($buffer, 0, $read)
             }
+            $cryptoStream.FlushFinalBlock()
+
+            $inStream.Dispose()
+            $inStream = $null
+            $cryptoStream.Dispose()
+            $cryptoStream = $null
+            $outStream.Dispose()
+            $outStream = $null
+
+            # Compute HMAC-SHA256 over Magic + Salt + IV + Ciphertext and append 32-byte tag
+            $hmac = [System.Security.Cryptography.HMACSHA256]::new($hmacKey)
+            $inStream = [System.IO.File]::OpenRead($DestinationEncryptedPath)
+            while (($read = $inStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                [void]$hmac.TransformBlock($buffer, 0, $read, $buffer, 0)
+            }
+            [void]$hmac.TransformFinalBlock([byte[]]@(), 0, 0)
+            $tag = $hmac.Hash
+            $inStream.Dispose()
+            $inStream = $null
+
+            $outStream = [System.IO.File]::Open($DestinationEncryptedPath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write)
+            $outStream.Write($tag, 0, $tag.Length)
+            $outStream.Dispose()
+            $outStream = $null
 
             if (-not $SkipVerify) {
-                $testArgs = @(
-                    't',
-                    "-p$plainPwd",
-                    $DestinationZipPath
-                )
-                $testOutput = & $SevenZipExe @testArgs 2>&1
-                if ($LASTEXITCODE -ne 0) {
-                    $errDetail = ($testOutput | Out-String).Trim()
-                    throw "7-Zip integrity verification failed with exit code $LASTEXITCODE. Details: $errDetail"
-                }
+                Test-EncryptedArchiveHmac -ArchivePath $DestinationEncryptedPath -PasswordBytes $passwordBytes
             }
         }
         finally {
-            $plainPwd = $null
-            [System.GC]::Collect()
+            if ($null -ne $cryptoStream) { $cryptoStream.Dispose() }
+            if ($null -ne $outStream) { $outStream.Dispose() }
+            if ($null -ne $inStream) { $inStream.Dispose() }
+            if ($null -ne $hmac) { $hmac.Dispose() }
+            if ($null -ne $aes) { $aes.Dispose() }
+            if ($null -ne $kdf) { $kdf.Dispose() }
+            if ($null -ne $rng) { $rng.Dispose() }
+            if ($null -ne $passwordBytes) { [Array]::Clear($passwordBytes, 0, $passwordBytes.Length) }
+            if (Test-Path -Path $tempZipPath) {
+                Remove-Item -Path $tempZipPath -Force -ErrorAction SilentlyContinue
+            }
         }
     }
 
@@ -670,10 +745,7 @@ VM ID collisions:
             [SecureString]$Password,
 
             [Parameter(Mandatory = $true)]
-            [string]$SevenZipExe,
-
-            [Parameter(Mandatory = $true)]
-            [int]$Level,
+            [string]$Level,
 
             [Parameter()]
             [switch]$LeaveStopped,
@@ -703,8 +775,8 @@ VM ID collisions:
         $vmTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
         $safeVmName = $vm.Name -replace '[\\/:*?"<>|]', '_'
         $stagingDir = Join-Path -Path $TargetBackupDir -ChildPath "_staging_${safeVmName}_${vmTimestamp}"
-        $zipFileName = "${safeVmName}_${vmTimestamp}.zip"
-        $zipFullPath = Join-Path -Path $TargetBackupDir -ChildPath $zipFileName
+        $archiveFileName = "${safeVmName}_${vmTimestamp}.zip.aes"
+        $archiveFullPath = Join-Path -Path $TargetBackupDir -ChildPath $archiveFileName
         $vmCopyLogLines = [System.Collections.Generic.List[string]]::new()
 
         $addVmLog = {
@@ -721,17 +793,17 @@ VM ID collisions:
         try {
             & $addVmLog "Starting $Mode backup (Original State: $originalState)" 'INFO'
 
-            if (-not $PSCmdlet.ShouldProcess($vm.Name, "Perform $Mode Hyper-V backup to $zipFullPath")) {
+            if (-not $PSCmdlet.ShouldProcess($vm.Name, "Perform $Mode Hyper-V backup to $archiveFullPath")) {
                 return [PSCustomObject]@{
-                    VMName         = $vm.Name
-                    BackupMode     = $Mode
-                    OriginalState  = $originalState
-                    FinalState     = $originalState
-                    ArchivePath    = $zipFullPath
-                    ArchiveSizeMB  = 0
-                    DurationSec    = 0
-                    Status         = 'WhatIf'
-                    Error          = $null
+                    VMName        = $vm.Name
+                    BackupMode    = $Mode
+                    OriginalState = $originalState
+                    FinalState    = $originalState
+                    ArchivePath   = $archiveFullPath
+                    ArchiveSizeMB = 0
+                    DurationSec   = 0
+                    Status        = 'WhatIf'
+                    Error         = $null
                 }
             }
 
@@ -781,7 +853,7 @@ VM ID collisions:
             & $addVmLog 'Captured VM hardware and vSwitch metadata (VM-Metadata.json).' 'INFO'
 
             $restoreDocPath = Join-Path -Path $stagingDir -ChildPath 'RESTORE-INSTRUCTIONS.txt'
-            New-RestoreInstructionFile -Metadata $metadata -BackupModeUsed $Mode -ArchiveFileName $zipFileName -OutputPath $restoreDocPath
+            New-RestoreInstructionFile -Metadata $metadata -BackupModeUsed $Mode -ArchiveFileName $archiveFileName -OutputPath $restoreDocPath
             & $addVmLog 'Generated restore instructions (RESTORE-INSTRUCTIONS.txt).' 'INFO'
 
             # Step 5: Embed copy logs inside the backup package
@@ -794,15 +866,14 @@ VM ID collisions:
                 Copy-Item -Path $GlobalLogPath -Destination $embeddedGlobalLog -Force
             }
 
-            # Step 6: Compress and encrypt with AES-256 ZIP
-            & $addVmLog "Creating AES-256 password-protected ZIP archive '$zipFullPath' (Compression: $Level)..." 'INFO'
-            Compress-BackupWithPassword -SevenZipExe $SevenZipExe `
-                -SourceDirectory $stagingDir `
-                -DestinationZipPath $zipFullPath `
+            # Step 6: Compress via .NET ZipFile (Zip64) & encrypt via AES-256-CBC + HMAC-SHA256
+            & $addVmLog "Creating native .NET AES-256 encrypted archive '$archiveFullPath' (Compression: $Level)..." 'INFO'
+            Compress-AndEncryptBackupNative -SourceDirectory $stagingDir `
+                -DestinationEncryptedPath $archiveFullPath `
                 -Password $Password `
                 -Level $Level `
                 -SkipVerify:$SkipVerify
-            & $addVmLog 'ZIP archive created and verified successfully.' 'SUCCESS'
+            & $addVmLog 'Encrypted archive created and HMAC-SHA256 verified successfully.' 'SUCCESS'
 
             # Step 7: Cleanup staging folder
             if (-not $RetainStaging -and (Test-Path -Path $stagingDir)) {
@@ -832,8 +903,8 @@ VM ID collisions:
             $sw.Stop()
         }
 
-        $zipSizeMB = if (Test-Path -Path $zipFullPath) {
-            [math]::Round(((Get-Item -Path $zipFullPath).Length / 1MB), 2)
+        $archiveSizeMB = if (Test-Path -Path $archiveFullPath) {
+            [math]::Round(((Get-Item -Path $archiveFullPath).Length / 1MB), 2)
         }
         else {
             0
@@ -846,8 +917,8 @@ VM ID collisions:
             BackupMode    = $Mode
             OriginalState = $originalState
             FinalState    = $finalState
-            ArchivePath   = $zipFullPath
-            ArchiveSizeMB = $zipSizeMB
+            ArchivePath   = $archiveFullPath
+            ArchiveSizeMB = $archiveSizeMB
             DurationSec   = [math]::Round($sw.Elapsed.TotalSeconds, 1)
             Status        = $status
             Error         = $errorMessage
@@ -866,12 +937,16 @@ VM ID collisions:
         Invoke-UacElevation -BoundParameters $PSBoundParameters
     }
 
+    # Load native .NET ZipFile assembly
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
     # Resolve default log path
     if ([string]::IsNullOrWhiteSpace($LogPath)) {
         $LogPath = "C:\Logs\${RunTimestamp}-${ScriptName}-${env:COMPUTERNAME}-${env:USERNAME}.logs"
     }
 
-    Write-Log -Message "=== Starting $ScriptName v$ScriptVersion ===" -Level 'INFO' -FilePath $LogPath -DisableDiskLog:$NoLog
+    Write-Log -Message "=== Starting $ScriptName v$ScriptVersion (100% Native .NET Zip64 + AES-256) ===" -Level 'INFO' -FilePath $LogPath -DisableDiskLog:$NoLog
     Write-Log -Message "BackupMode: $BackupMode | BackupPath: $BackupPath | CompressionLevel: $CompressionLevel" -Level 'INFO' -FilePath $LogPath -DisableDiskLog:$NoLog
 
     # Verify Hyper-V module availability
@@ -880,11 +955,7 @@ VM ID collisions:
     }
     Import-Module -Name 'Hyper-V' -ErrorAction Stop
 
-    # Resolve 7-Zip executable
-    $resolved7z = Resolve-SevenZipExecutable -ExplicitPath $SevenZipPath
-    Write-Log -Message "Using 7-Zip executable: $resolved7z" -Level 'INFO' -FilePath $LogPath -DisableDiskLog:$NoLog
-
-    # Ensure backup directory exists
+    # Ensure backup directory exists and copy Decrypt-HyperVBackup.ps1 if available alongside script
     if (-not (Test-Path -Path $BackupPath)) {
         if ($PSCmdlet.ShouldProcess($BackupPath, 'Create backup destination directory')) {
             New-Item -Path $BackupPath -ItemType Directory -Force | Out-Null
@@ -892,23 +963,37 @@ VM ID collisions:
         }
     }
 
-    # Obtain ZIP password securely if not supplied via parameter
+    $decryptorSource = Join-Path -Path $PSScriptRoot -ChildPath 'Decrypt-HyperVBackup.ps1'
+    if ((Test-Path -Path $decryptorSource -PathType Leaf) -and (Test-Path -Path $BackupPath)) {
+        $decryptorTarget = Join-Path -Path $BackupPath -ChildPath 'Decrypt-HyperVBackup.ps1'
+        if ($PSCmdlet.ShouldProcess($decryptorTarget, 'Copy native decryption helper script to backup directory')) {
+            Copy-Item -Path $decryptorSource -Destination $decryptorTarget -Force
+        }
+    }
+
+    # Obtain encryption password securely if not supplied via parameter
     if ($null -eq $ZipPassword -and -not $WhatIfPreference) {
-        $ZipPassword = Read-Host -Prompt 'Enter AES-256 ZIP encryption password' -AsSecureString
-        $confirmPwd = Read-Host -Prompt 'Confirm AES-256 ZIP encryption password' -AsSecureString
+        $ZipPassword = Read-Host -Prompt 'Enter AES-256 encryption password' -AsSecureString
+        $confirmPwd = Read-Host -Prompt 'Confirm AES-256 encryption password' -AsSecureString
 
         $p1 = $null
         $p2 = $null
         try {
-            $p1 = ConvertFrom-SecureStringToPlainText -SecureValue $ZipPassword
-            $p2 = ConvertFrom-SecureStringToPlainText -SecureValue $confirmPwd
-            if ($p1 -cne $p2) {
+            $p1 = ConvertFrom-SecureStringToBytes -SecureValue $ZipPassword
+            $p2 = ConvertFrom-SecureStringToBytes -SecureValue $confirmPwd
+            $match = ($p1.Length -eq $p2.Length)
+            if ($match) {
+                for ($i = 0; $i -lt $p1.Length; $i++) {
+                    if ($p1[$i] -ne $p2[$i]) { $match = $false }
+                }
+            }
+            if (-not $match) {
                 throw 'Password confirmation did not match. Aborting backup.'
             }
         }
         finally {
-            $p1 = $null
-            $p2 = $null
+            if ($null -ne $p1) { [Array]::Clear($p1, 0, $p1.Length) }
+            if ($null -ne $p2) { [Array]::Clear($p2, 0, $p2.Length) }
         }
     }
     elseif ($null -eq $ZipPassword -and $WhatIfPreference) {
@@ -947,7 +1032,6 @@ end {
                 -Mode $BackupMode `
                 -TargetBackupDir $BackupPath `
                 -Password $ZipPassword `
-                -SevenZipExe $resolved7z `
                 -Level $CompressionLevel `
                 -LeaveStopped:$KeepStopped `
                 -StopTimeoutSec $ShutdownTimeoutSeconds `
