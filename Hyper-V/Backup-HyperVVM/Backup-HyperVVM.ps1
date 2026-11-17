@@ -139,6 +139,10 @@
     C:\Scripts\Backup-HyperVVM.ps1 -VMName "APP01","SQL01" -BackupMode Hot -CompressionLevel Fastest
     Performs a Hot backup of APP01 and SQL01, prompting securely for the password.
 
+.EXAMPLE
+    C:\Scripts\Decrypt-HyperVBackup.ps1 -ArchivePath "C:\DANE\Backup\DC01_20261117-220000.zip.aes" -DestinationPath "C:\Restore\DC01"
+    Decrypts and extracts the encrypted VM backup archive for restoration.
+
 .NOTES
     Author       : Roman Pindela
     Email        : roman.pindela@gmail.com
@@ -260,6 +264,9 @@ begin {
         Write-Host '  # 1. Save once: Read-Host -AsSecureString | Export-Clixml C:\Scripts\zip.cred' -ForegroundColor DarkGray
         Write-Host '  # 2. Load:      $pwd = Import-Clixml C:\Scripts\zip.cred' -ForegroundColor Green
         Write-Host '  C:\Scripts\Backup-HyperVVM.ps1 -VMName "APP01","DB01" -BackupMode Hot -ZipPassword $pwd' -ForegroundColor Green
+        Write-Host ''
+        Write-Host 'DECRYPT & RESTORE EXAMPLE:' -ForegroundColor Yellow
+        Write-Host '  C:\Scripts\Decrypt-HyperVBackup.ps1 -ArchivePath "C:\DANE\Backup\DC01_20261117-220000.zip.aes" -DestinationPath "C:\Restore\DC01"' -ForegroundColor Green
         Write-Host ''
         Write-Host 'AUTHOR:' -ForegroundColor Yellow
         Write-Host '  Roman Pindela | roman.pindela@gmail.com | https://github.com/romanpindela' -ForegroundColor Gray
