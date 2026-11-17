@@ -110,6 +110,7 @@ Unblock-File -Path "C:\Scripts\Decrypt-HyperVBackup.ps1"
 | `-NoLog` | `switch` | `$false` | Disable writing execution logs to disk. |
 | `-SkipAdminCheck` | `switch` | `$false` | Bypass SID `S-1-5-32-544` elevation check. |
 | `-PassThru` | `switch` | `$false` | Return structured `[PSCustomObject]` results to pipeline. |
+| `-ListVMs` (`-List`) | `switch` | `$false` | List all Hyper-V VMs on the host with detailed specs in a table and exit. |
 | `-Help` (`-h`) | `switch` | `$false` | Display help screen and exit. |
 
 ---
@@ -119,6 +120,11 @@ Unblock-File -Path "C:\Scripts\Decrypt-HyperVBackup.ps1"
 ### 1. Display Help (Zero-Parameter Safe Run)
 ```powershell
 C:\Scripts\Backup-HyperVVM.ps1
+```
+
+### 1b. List All Hyper-V Virtual Machines with Details
+```powershell
+C:\Scripts\Backup-HyperVVM.ps1 -ListVMs
 ```
 
 ### 2. Cold Backup with Secure Interactive Password Prompt

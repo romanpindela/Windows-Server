@@ -122,12 +122,21 @@
     Switch parameter. Returns structured [PSCustomObject] backup results to the
     PowerShell pipeline.
 
+.PARAMETER ListVMs
+    Switch parameter (-ListVMs / -List). Lists all Hyper-V virtual machines on
+    the host with detailed configuration and state in a formatted table and exits.
+
 .PARAMETER Help
     Switch parameter (-Help / -h). Displays this help guide and exits safely.
 
 .EXAMPLE
     C:\Scripts\Backup-HyperVVM.ps1
     Displays the built-in help screen without elevating or modifying anything.
+
+.EXAMPLE
+    C:\Scripts\Backup-HyperVVM.ps1 -ListVMs
+    Lists all Hyper-V virtual machines on the host with state, CPU, RAM, disks,
+    checkpoints, vSwitches, and uptime in a table.
 
 .EXAMPLE
     $pwd = Read-Host "Enter Encryption Password" -AsSecureString
@@ -207,6 +216,10 @@ param (
     [switch]$PassThru,
 
     [Parameter()]
+    [Alias('List')]
+    [switch]$ListVMs,
+
+    [Parameter()]
     [Alias('h')]
     [switch]$Help
 )
@@ -237,6 +250,7 @@ begin {
         Write-Host '                        [-CompressionLevel Optimal|Fastest|NoCompression]' -ForegroundColor White
         Write-Host '                        [-KeepStopped] [-ForceShutdown] [-KeepUncompressed]' -ForegroundColor White
         Write-Host '                        [-LogPath <string>] [-NoLog] [-PassThru]' -ForegroundColor White
+        Write-Host '  .\Backup-HyperVVM.ps1 -ListVMs [-PassThru]' -ForegroundColor White
         Write-Host '  .\Backup-HyperVVM.ps1 [-Help | -h]' -ForegroundColor White
         Write-Host ''
         Write-Host 'PARAMETERS:' -ForegroundColor Yellow
@@ -253,6 +267,7 @@ begin {
         Write-Host '  -LogPath <string>           Custom log path (default: C:\Logs\<timestamp>-Backup-HyperVVM-*.logs)'
         Write-Host '  -NoLog                      Disable disk logging'
         Write-Host '  -PassThru                   Output structured [PSCustomObject] results to pipeline'
+        Write-Host '  -ListVMs / -List            List all Hyper-V VMs with details in a table and exit'
         Write-Host '  -Help / -h                  Display this help screen and exit'
         Write-Host ''
         Write-Host 'SECURE PASSWORD EXAMPLES:' -ForegroundColor Yellow
@@ -932,6 +947,46 @@ VM ID collisions:
         }
     }
 
+    function Get-HyperVVMInventory {
+        [CmdletBinding()]
+        [OutputType([pscustomobject[]])]
+        param ()
+
+        $vms = @(Get-VM | Sort-Object -Property Name)
+        $inventory = [System.Collections.Generic.List[pscustomobject]]::new()
+
+        foreach ($vm in $vms) {
+            $disks = @(Get-VMHardDiskDrive -VMName $vm.Name -ErrorAction SilentlyContinue)
+            $diskBytes = 0L
+            foreach ($d in $disks) {
+                if (-not [string]::IsNullOrWhiteSpace($d.Path) -and (Test-Path -Path $d.Path -PathType Leaf)) {
+                    $diskBytes += (Get-Item -Path $d.Path).Length
+                }
+            }
+
+            $switches = @((Get-VMNetworkAdapter -VMName $vm.Name -ErrorAction SilentlyContinue).SwitchName | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+            $checkpoints = @(Get-VMSnapshot -VMName $vm.Name -ErrorAction SilentlyContinue).Count
+
+            $memBytes = if ($vm.MemoryAssigned -gt 0) { $vm.MemoryAssigned } else { $vm.MemoryStartup }
+
+            $inventory.Add([PSCustomObject]@{
+                    VMName      = $vm.Name
+                    State       = $vm.State.ToString()
+                    Gen         = "Gen$($vm.Generation)"
+                    CPU         = $vm.ProcessorCount
+                    MemoryGB    = [math]::Round(($memBytes / 1GB), 2)
+                    Disks       = $disks.Count
+                    DiskSizeGB  = [math]::Round(($diskBytes / 1GB), 2)
+                    Checkpoints = $checkpoints
+                    vSwitch     = if ($switches.Count -gt 0) { $switches -join ', ' } else { '-' }
+                    Uptime      = if ($vm.State -eq 'Running') { $vm.Uptime.ToString('dd\.hh\:mm\:ss') } else { '-' }
+                    VMId        = $vm.Id.ToString()
+                })
+        }
+
+        return ,$inventory.ToArray()
+    }
+
     #endregion Helper Functions
 
     # Zero-parameter or -Help / -h safe exit before UAC elevation
@@ -961,6 +1016,24 @@ VM ID collisions:
         throw 'The Hyper-V PowerShell module is not installed on this machine. Install RSAT-Hyper-V-Tools or the Hyper-V role.'
     }
     Import-Module -Name 'Hyper-V' -ErrorAction Stop
+
+    # Read-only VM inventory listing mode
+    if ($ListVMs) {
+        Write-Log -Message 'Querying Hyper-V virtual machine inventory...' -Level 'INFO' -FilePath $LogPath -DisableDiskLog:$NoLog
+        $inventory = Get-HyperVVMInventory
+        Write-Host ''
+        Write-Host "=== Hyper-V Virtual Machines on $env:COMPUTERNAME (Total: $($inventory.Count)) ===" -ForegroundColor Cyan
+        if ($inventory.Count -eq 0) {
+            Write-Host 'No Hyper-V virtual machines found on this host.' -ForegroundColor Yellow
+        }
+        else {
+            $inventory | Format-Table -AutoSize VMName, State, Gen, CPU, MemoryGB, Disks, DiskSizeGB, Checkpoints, vSwitch, Uptime
+        }
+        if ($PassThru) {
+            $inventory
+        }
+        exit 0
+    }
 
     # Ensure backup directory exists and copy Decrypt-HyperVBackup.ps1 if available alongside script
     if (-not (Test-Path -Path $BackupPath)) {
