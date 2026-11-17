@@ -159,7 +159,14 @@ C:\Scripts\Decrypt-HyperVBackup.ps1 -ArchivePath "C:\DANE\Backup\DC01_20261117-2
 
 ## Assets
 
-- `assets/` — Reserved for screenshots and visual documentation.
+### Standard Run (Zero-Parameter / `-Help`)
+![Standard Run](assets/Standard_run.jpg)
+
+### Listing Hyper-V VMs (`-ListVMs`)
+![Listing VMs](assets/Listing_VMs.jpg)
+
+### Encrypted VM Backup Execution (`Backup-HyperVVM.ps1`)
+![Backup VM](assets/Backup_VM.jpg)
 
 ---
 
