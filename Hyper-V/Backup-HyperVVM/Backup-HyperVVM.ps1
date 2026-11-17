@@ -1,4 +1,4 @@
-﻿<#
+<#
 ================================================================================
   Script Name : Backup-HyperVVM.ps1
   Author      : Roman Pindela
@@ -606,7 +606,7 @@ VM ID collisions:
             $remaining = $inStream.Length - 32
             $buffer = New-Object byte[] (1024 * 1024)
             while ($remaining -gt 0) {
-                $toRead = [int][Math]::Min($buffer.Length, $remaining)
+                $toRead = [int][Math]::Min([long]$buffer.Length, [long]$remaining)
                 $read = $inStream.Read($buffer, 0, $toRead)
                 if ($read -le 0) { break }
                 [void]$hmac.TransformBlock($buffer, 0, $read, $buffer, 0)

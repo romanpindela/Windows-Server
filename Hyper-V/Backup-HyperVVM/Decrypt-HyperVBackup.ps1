@@ -1,4 +1,4 @@
-﻿<#
+<#
 ================================================================================
   Script Name : Decrypt-HyperVBackup.ps1
   Author      : Roman Pindela
@@ -142,7 +142,7 @@ try {
     $remainingToHash = $inStream.Length - 32
     $buffer = New-Object byte[] (1024 * 1024)
     while ($remainingToHash -gt 0) {
-        $toRead = [int][Math]::Min($buffer.Length, $remainingToHash)
+        $toRead = [int][Math]::Min([long]$buffer.Length, [long]$remainingToHash)
         $read = $inStream.Read($buffer, 0, $toRead)
         if ($read -le 0) { break }
         [void]$hmac.TransformBlock($buffer, 0, $read, $buffer, 0)
@@ -177,7 +177,7 @@ try {
 
     $remainingCipher = $ciphertextLength
     while ($remainingCipher -gt 0) {
-        $toRead = [int][Math]::Min($buffer.Length, $remainingCipher)
+        $toRead = [int][Math]::Min([long]$buffer.Length, [long]$remainingCipher)
         $read = $inStream.Read($buffer, 0, $toRead)
         if ($read -le 0) { break }
         $cryptoStream.Write($buffer, 0, $read)
