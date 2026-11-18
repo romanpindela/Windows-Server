@@ -258,6 +258,15 @@ C:\Scripts\Backup-HyperVVM\Decrypt-HyperVBackup.ps1 -ArchivePath "C:\DANE\Backup
 ### Passwordless Hot Backup Execution (`-BackupMode Hot -NoEncrypt`)
 ![Hot Backup NoEncrypt](assets/Backup_VM2.jpg)
 
+### Registering Monthly Scheduled Tasks (`Register-Backup-HyperVVM.ps1`)
+![Registering Planned Tasks](assets/Registering_planned_tasks.jpg)
+
+### Connecting Remotely to Hyper-V Server Task Scheduler (`taskschd.msc`)
+![Connecting to Task Scheduler](assets/ConnectingTo-Task_Scheduler-Hyper-V_Server.jpg)
+
+### Registered Monthly Sunday Backup Tasks on Hyper-V Server
+![Task Scheduler on Hyper-V Server](assets/Task_Scheduler-Hyper-V_Server.jpg)
+
 ---
 
 ## Logging & Troubleshooting
