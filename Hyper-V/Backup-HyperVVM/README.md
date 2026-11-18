@@ -201,6 +201,9 @@ C:\Scripts\Decrypt-HyperVBackup.ps1 -ArchivePath "C:\DANE\Backup\DC01_20261117-2
 ### Encrypted VM Backup Execution (`Backup-HyperVVM.ps1`)
 ![Backup VM](assets/Backup_VM.jpg)
 
+### Completed Cold Backup & HMAC-SHA256 Verification
+![Backup Success](assets/backup_success.jpg)
+
 ---
 
 ## Logging & Troubleshooting
