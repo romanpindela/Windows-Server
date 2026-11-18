@@ -144,7 +144,11 @@ flowchart TD
 
 ## Assets
 
-Supporting screenshots and diagrams can be stored in the [`assets/`](assets/) directory.
+### Standard Run (Zero-Parameter / `-Help`)
+![Standard Run](assets/Standard_run.jpg)
+
+### Enabling Remote Task Scheduler Firewall Rules (`-Enable`)
+![Enabling Firewall Rules](assets/Enabling.jpg)
 
 ---
 

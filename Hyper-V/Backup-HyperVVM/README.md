@@ -255,6 +255,9 @@ C:\Scripts\Backup-HyperVVM\Decrypt-HyperVBackup.ps1 -ArchivePath "C:\DANE\Backup
 ### Completed Cold Backup & HMAC-SHA256 Verification
 ![Backup Success](assets/backup_success.jpg)
 
+### Passwordless Hot Backup Execution (`-BackupMode Hot -NoEncrypt`)
+![Hot Backup NoEncrypt](assets/Backup_VM2.jpg)
+
 ---
 
 ## Logging & Troubleshooting
