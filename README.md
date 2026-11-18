@@ -12,6 +12,7 @@ All scripts follow standardized `Verb-Noun` PascalCase naming, provide safe zero
 | :--- | :--- | :--- | :--- | :--- |
 | [Backup-HyperVVM](Hyper-V/Backup-HyperVVM/README.md) | Automates full Hot/Cold Hyper-V VM backups (`Export-VM`), embeds hardware metadata, restore instructions, and copy logs, and compresses everything into an AES-256 password-protected ZIP archive. | Eliminates manual VM export steps, undocumented vSwitch mappings, and unencrypted backup archives by producing self-contained, verifiable recovery packages in `C:\DANE\Backup`. | `Hyper-V` | `Admin` |
 | [Enable-HyperVRemoteManagementForServer](Hyper-V/Enable-HyperVRemoteManagementForServer/README.md) | Automates host-side WinRM, CredSSP Server, network profile, and Windows Firewall configuration for remote Hyper-V management over LAN and VPN. | Resolves WinRM `Public` network profile errors, `LocalSubnet` firewall blocks over VPN tunnels, and missing CredSSP Server configuration on standalone Workgroup Hyper-V hosts. | `Hyper-V` | `Admin` |
+| [Enable-RemoteTaskSchedulerFirewall](Hyper-V/Enable-RemoteTaskSchedulerFirewall/README.md) | Configures, audits, and toggles Windows Defender Firewall rules for Remote Scheduled Tasks Management (MMC `taskschd.msc` / RSAT) on Hyper-V hosts across EN/PL OS editions. | Eliminates MMC Task Scheduler RPC connection timeouts (`RemoteTask-*` / TCP 135 & dynamic RPC ports) and supports optional subnet/VPN scoping without manual GUI firewall hunting. | `Hyper-V` | `Admin` |
 | [Manage-Processes](Manage-Processes/README.md) | Provides interactive and CLI process diagnostics, RAM/CPU/Disk I/O monitoring, autostart detection, TCP/UDP port-blocker correlation, and safe process termination. | Eliminates manual correlation across Task Manager, `netstat`, services, Registry, and Task Scheduler when identifying resource hogs, persistence items, or services blocking network ports. | `Process Management` | `Admin` |
 | [Manage-ScheduledTasks](Manage-ScheduledTasks/README.md) | Delivers an interactive and CLI flat-view manager for Windows Scheduled Tasks with real-time search, trigger/state filtering, and batch enable/disable by ID or wildcard name. | Overcomes deep folder nesting in Task Scheduler (`taskschd.msc`) to quickly audit upcoming tasks chronologically and toggle tasks across folders in bulk. | `Scheduled Tasks` | `Admin` |
 
@@ -26,9 +27,13 @@ Windows-Server/
 │   │   ├── assets/
 │   │   ├── Backup-HyperVVM.ps1
 │   │   └── README.md
-│   └── Enable-HyperVRemoteManagementForServer/
+│   ├── Enable-HyperVRemoteManagementForServer/
+│   │   ├── assets/
+│   │   ├── Enable-HyperVRemoteManagementForServer.ps1
+│   │   └── README.md
+│   └── Enable-RemoteTaskSchedulerFirewall/
 │       ├── assets/
-│       ├── Enable-HyperVRemoteManagementForServer.ps1
+│       ├── Enable-RemoteTaskSchedulerFirewall.ps1
 │       └── README.md
 ├── Manage-Processes/
 │   ├── assets/
