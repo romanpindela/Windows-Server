@@ -267,6 +267,9 @@ C:\Scripts\Backup-HyperVVM\Decrypt-HyperVBackup.ps1 -ArchivePath "C:\DANE\Backup
 ### Registered Monthly Sunday Backup Tasks on Hyper-V Server
 ![Task Scheduler on Hyper-V Server](assets/Task_Scheduler-Hyper-V_Server.jpg)
 
+### Scheduled Task Execution Audit Log (`C:\Logi` — `v1.3.1`)
+![Scheduled Backup Audit Log](assets/Scheduled_backup_log.jpg)
+
 ---
 
 ## Logging & Troubleshooting
