@@ -3,7 +3,7 @@
   Script Name : Backup-HyperVVM.ps1
   Author      : Roman Pindela
   Contact     : roman.pindela@gmail.com
-  Version     : 1.3.0
+  Version     : 1.3.1
   Release Date: 2026-11-18
   License     : MIT
   Repository  : https://github.com/romanpindela/Windows-Server
@@ -195,7 +195,7 @@
     Author       : Roman Pindela
     Email        : roman.pindela@gmail.com
     GitHub       : https://github.com/romanpindela
-    Version      : 1.3.0
+    Version      : 1.3.1
     Last Modified: 2026-11-18
     Deployment   : Recommended location on Hyper-V host: C:\Scripts\Backup-HyperVVM\Backup-HyperVVM.ps1
 #>
@@ -301,7 +301,7 @@ begin {
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
 
-    $ScriptVersion = '1.3.0'
+    $ScriptVersion = '1.3.1'
     $ScriptName = 'Backup-HyperVVM'
     $RunTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 
@@ -499,7 +499,7 @@ begin {
         [OutputType([pscustomobject])]
         param (
             [Parameter(Mandatory = $true)]
-            [Microsoft.HyperV.PowerShell.VirtualMachine]$VM,
+            [psobject]$VM,
 
             [Parameter(Mandatory = $true)]
             [string]$OutputJsonPath
@@ -515,12 +515,13 @@ begin {
             })
 
         $nics = @(Get-VMNetworkAdapter -VMName $VM.Name | ForEach-Object {
+                $vlan = Get-VMNetworkAdapterVlan -VMNetworkAdapter $_ -ErrorAction SilentlyContinue
                 [PSCustomObject]@{
                     Name        = $_.Name
                     SwitchName  = $_.SwitchName
                     MacAddress  = $_.MacAddress
                     DynamicMac  = $_.DynamicMacAddressEnabled
-                    VlanSetting = (Get-VMNetworkAdapterVlan -VMNetworkAdapter $_ -ErrorAction SilentlyContinue).OperationMode
+                    VlanSetting = if ($null -ne $vlan) { $vlan.OperationMode.ToString() } else { 'Untagged' }
                 }
             })
 

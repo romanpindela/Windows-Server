@@ -2,7 +2,7 @@
 
 [![PowerShell Version](https://img.shields.io/badge/PowerShell-5.1%20%7C%207%2B-blue.svg)](https://microsoft.com/powershell)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20Server%202016--2025%20%7C%20Win%2010%2F11%20Pro-lightgrey.svg)](https://www.microsoft.com/windows-server)
-[![Version](https://img.shields.io/badge/Version-1.3.0-green.svg)](https://github.com/romanpindela/Windows-Server)
+[![Version](https://img.shields.io/badge/Version-1.3.1-green.svg)](https://github.com/romanpindela/Windows-Server)
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)](https://opensource.org/licenses/MIT)
 
 ---
@@ -280,6 +280,7 @@ C:\Scripts\Backup-HyperVVM\Decrypt-HyperVBackup.ps1 -ArchivePath "C:\DANE\Backup
 
 ## Changelog
 
+- **1.3.1 (2026-11-18):** Fixed `Export-HyperVVMMetadata` parameter type mismatch (`Microsoft.HyperV.PowerShell.VirtualMachine` assembly identity conflict when running under fresh Task Scheduler `SYSTEM` / `-NoProfile` sessions with side-by-side Hyper-V module versions) by using `[psobject]$VM`, and guarded `Get-VMNetworkAdapterVlan` against `$null` under `StrictMode`.
 - **1.3.0 (2026-11-18):** Added `Install-Backup-HyperVVM.ps1` and `Register-Backup-HyperVVM.ps1` (monthly Sunday 14:00 scheduled tasks for `SQL2022`, `Unify`, and `Elektrimont ESET Protect`); changed default audit log directory to `C:\Logi`; added **8 defensive safeguards** including Global Named Mutex lock, `vmms` service & write/delete permission probes, VM state/disk/VSS pre-flight checks, dynamic disk space validation (`-MinFreeSpaceMB`), post-export structural verification, minimum size validation (`-MinValidSizeMB 10`), backup-first retention (`-RetentionCount 1`), and automatic cleanup of failed session artifacts.
 - **1.2.0 (2026-11-18):** Added passwordless backup options: `-NoEncrypt` (creates unencrypted `.zip` archive via native .NET Zip64) and `-NoZip` (saves uncompressed VM export folder without ZIP or password); updated `RESTORE-INSTRUCTIONS.txt` per output format, summary table `Format` column, and early empty-password validation.
 - **1.1.0 (2026-11-17):** Replaced external `7z.exe` dependency with 100% native Microsoft `.NET ZipFile` (Zip64) + streaming `AES-256-CBC` + `HMAC-SHA256` encryption (`.zip.aes`) and added `Decrypt-HyperVBackup.ps1`.
