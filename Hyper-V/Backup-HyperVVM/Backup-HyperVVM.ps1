@@ -3,7 +3,7 @@
   Script Name : Backup-HyperVVM.ps1
   Author      : Roman Pindela
   Contact     : roman.pindela@gmail.com
-  Version     : 1.2.0
+  Version     : 1.3.0
   Release Date: 2026-11-18
   License     : MIT
   Repository  : https://github.com/romanpindela/Windows-Server
@@ -16,56 +16,43 @@
     (.zip.aes), unencrypted ZIP archives (.zip, -NoEncrypt), or raw
     uncompressed VM export folders (-NoZip).
 
-    Key Capabilities:
-    1. Zero-Parameter Interactive Help (-Help / -h):
-       Displays complete syntax, parameter reference, security guidance, and
-       usage examples when run without arguments or with -Help, without
-       triggering an unnecessary UAC elevation prompt.
-    2. Hot & Cold Backup Modes (-BackupMode Hot | Cold):
-       - Hot: Exports the running VM live without downtime via Export-VM.
-       - Cold: Gracefully shuts down the VM (with configurable timeout and
-         optional -ForceShutdown), exports a clean offline state, and
-         automatically restarts the VM afterward (unless -KeepStopped is set).
-    3. Complete Self-Contained Recovery Package:
-       Includes the full Hyper-V Export-VM structure (Virtual Machines/*.vmcx,
-       Virtual Hard Disks/*.vhdx, Snapshots/*), hardware/vSwitch metadata
-       (VM-Metadata.json), step-by-step RESTORE-INSTRUCTIONS.txt, and copy
-       execution logs (Backup-Copy.log).
-    4. Flexible Output Formats (Encrypted ZIP, Plain ZIP, or Uncompressed Folder):
-       - Default: Native .NET Zip64 + streaming AES-256-CBC + HMAC-SHA256
-         (.zip.aes, PBKDF2 100,000 iterations) with [SecureString] (-ZipPassword)
-         or interactive Read-Host -AsSecureString prompt.
-       - -NoEncrypt: Native .NET Zip64 archive (.zip) without password/encryption.
-       - -NoZip: Direct uncompressed VM backup folder without ZIP or password.
-    5. Multi-Language UAC Auto-Elevation:
-       Verifies Administrator privileges using the well-known Windows SID
-       (S-1-5-32-544 / BuiltInAdministratorsSid) for 100% compatibility across
-       Polish and English Windows editions.
-    6. Detailed Audit Logging:
-       Writes UTF-8 timestamped logs to:
-       C:\Logs\<yyyyMMdd-HHmmss>-Backup-HyperVVM-<ComputerName>-<UserName>.logs
+    Key Capabilities & 8 Defensive Safeguards:
+    1. Single-Instance Execution Lock (Global Named Mutex) preventing
+       overlapping runs from colliding on Hyper-V exports or retention.
+    2. Language-Independent Admin SID (S-1-5-32-544), NTFS Write/Delete
+       Permission Probe, and Hyper-V VMMS Service Readiness Verification.
+    3. Pre-Flight VM Existence, State, Disk Path, & VSS Integration Check.
+    4. Dynamic Pre-Flight Free Disk Space Verification (VM disk footprint +
+       configurable -MinFreeSpaceMB buffer) preventing disk-full crashes.
+    5. Post-Export Structural Verification (.vmcx/.xml & .vhdx completeness).
+    6. Minimum Valid Backup Size Enforcement (-MinValidSizeMB, default 10 MB).
+    7. Post-Creation Archive Integrity Verification (Zip64 central directory
+       & core entry check for .zip; HMAC-SHA256 cryptographic tag for .zip.aes).
+    8. Backup-First Count- & Size-Guarded Retention (-RetentionCount, default 1)
+       + Automatic Cleanup of Partial/Unverified Artifacts on Failure.
+    9. Detailed UTF-8 Audit Logging in C:\Logi\ (configurable via -LogDir/-LogPath).
 ================================================================================
 #>
 
 <#
 .SYNOPSIS
-    Creates a complete Hyper-V virtual machine backup in Hot or Cold mode as an
-    AES-256 encrypted ZIP (.zip.aes), unencrypted ZIP (.zip), or raw folder.
+    Creates a complete, safeguarded Hyper-V virtual machine backup in Hot or Cold
+    mode as an AES-256 encrypted ZIP (.zip.aes), unencrypted ZIP (.zip), or folder.
 
 .DESCRIPTION
     Automates full Hyper-V virtual machine backup on a Hyper-V host using only
     built-in Microsoft Windows/PowerShell/.NET components:
-    - Validates Administrator privileges via SID S-1-5-32-544.
-    - Supports single or multiple VMs via -VMName or pipeline input.
+    - Acquires a Global Named Mutex lock to prevent overlapping backup runs.
+    - Validates Administrator privileges (SID S-1-5-32-544), NTFS write/delete
+      permissions, and Hyper-V Management Service (vmms) status.
+    - Checks VM state, virtual disk paths, VSS integration, and free disk space
+      dynamically before exporting.
     - Supports Hot backup (live Export-VM, default) and Cold backup (graceful
       shutdown, Export-VM, and automatic restart in try/finally).
-    - Exports all VM configuration files, virtual hard disks, and checkpoints.
-    - Generates VM-Metadata.json and RESTORE-INSTRUCTIONS.txt tailored to the
-      backed-up VM and output format.
-    - Includes Backup-Copy.log inside the backup package and writes full audit
-      logs to C:\Logs\.
-    - Outputs to C:\DANE\Backup\<VMName>_<timestamp>.zip.aes (default),
-      .zip (with -NoEncrypt), or <VMName>_<timestamp>\ folder (with -NoZip).
+    - Verifies exported VM structure, minimum archive size (-MinValidSizeMB),
+      and ZIP / HMAC-SHA256 integrity before deleting any previous backup.
+    - Enforces backup-first retention (-RetentionCount, default 1 valid copy
+      per VM in C:\DANE\Backup) and writes full audit logs to C:\Logi\.
 
 .PARAMETER VMName
     One or more Hyper-V virtual machine names to back up. Supports pipeline input.
@@ -123,9 +110,38 @@
     Switch parameter. Skips the post-compression / post-encryption archive
     integrity verification pass.
 
+.PARAMETER RetentionCount
+    Number of valid backup copies (>= MinValidSizeMB) to keep per VM in
+    BackupPath. Older valid copies for that VM are deleted ONLY AFTER the new
+    backup passes all verification checks. Set to 0 to disable cleanup.
+    Default: 1.
+
+.PARAMETER MinValidSizeMB
+    Minimum backup output size in MB required for a backup to be considered
+    valid (when the VM has virtual disks attached). Protects against empty or
+    truncated backups replacing healthy backups. Default: 10.
+
+.PARAMETER MinFreeSpaceMB
+    Minimum free disk space buffer in MB required on target backup volume
+    above the VM's disk footprint before starting Export-VM. Default: 2048.
+
+.PARAMETER SkipDiskSpaceCheck
+    Switch parameter. Bypasses the pre-flight free disk space check.
+
+.PARAMETER SkipMutex
+    Switch parameter. Bypasses the single-instance Global Mutex lock.
+
+.PARAMETER MutexTimeoutSeconds
+    Seconds to wait for the Global Mutex lock if another instance is running.
+    Default: 0 (fail immediately if locked).
+
+.PARAMETER LogDir
+    Directory for execution audit logs when -LogPath is not specified.
+    Default: 'C:\Logi'.
+
 .PARAMETER LogPath
     Custom file path for the execution log file.
-    Default: C:\Logs\<yyyyMMdd-HHmmss>-Backup-HyperVVM-<ComputerName>-<UserName>.logs
+    Default: <LogDir>\<yyyyMMdd-HHmmss>-Backup-HyperVVM-<ComputerName>-<UserName>.log
     Aliases: -l, -Log
 
 .PARAMETER NoLog
@@ -146,45 +162,42 @@
     Switch parameter (-Help / -h). Displays this help guide and exits safely.
 
 .EXAMPLE
-    C:\Scripts\Backup-HyperVVM.ps1
+    C:\Scripts\Backup-HyperVVM\Backup-HyperVVM.ps1
     Displays the built-in help screen without elevating or modifying anything.
 
 .EXAMPLE
-    C:\Scripts\Backup-HyperVVM.ps1 -ListVMs
+    C:\Scripts\Backup-HyperVVM\Backup-HyperVVM.ps1 -ListVMs
     Lists all Hyper-V virtual machines on the host with state, CPU, RAM, disks,
     checkpoints, vSwitches, and uptime in a table.
 
 .EXAMPLE
-    $pwd = Read-Host "Enter Encryption Password" -AsSecureString
-    C:\Scripts\Backup-HyperVVM.ps1 -VMName "DC01" -BackupMode Cold -ZipPassword $pwd
-    Performs a Cold backup of DC01, includes restore instructions and copy logs,
-    and saves an AES-256 encrypted .zip.aes archive to C:\DANE\Backup.
+    C:\Scripts\Backup-HyperVVM\Backup-HyperVVM.ps1 -VMName "SQL2022" -BackupMode Hot -NoEncrypt -BackupPath "C:\DANE\Backup"
+    Performs a live Hot backup of SQL2022 without a password, saves an
+    unencrypted .zip archive to C:\DANE\Backup, keeps only the latest valid copy
+    (deleting the previous one after verification), and logs to C:\Logi.
 
 .EXAMPLE
-    C:\Scripts\Backup-HyperVVM.ps1 -VMName "APP01","SQL01" -BackupMode Hot -CompressionLevel Fastest
-    Performs a Hot backup of APP01 and SQL01, prompting securely for the password.
-
-.EXAMPLE
-    C:\Scripts\Backup-HyperVVM.ps1 -VMName "WEB01" -BackupMode Hot -NoEncrypt
-    Performs a live Hot backup of WEB01 without a password and saves an
-    unencrypted .zip archive to C:\DANE\Backup.
-
-.EXAMPLE
-    C:\Scripts\Backup-HyperVVM.ps1 -VMName "WEB01" -BackupMode Hot -NoZip
+    C:\Scripts\Backup-HyperVVM\Backup-HyperVVM.ps1 -VMName "WEB01" -BackupMode Hot -NoZip
     Performs a live Hot backup of WEB01 without a password and without ZIP
     compression, saving the full VM export folder directly to C:\DANE\Backup.
 
 .EXAMPLE
-    C:\Scripts\Decrypt-HyperVBackup.ps1 -ArchivePath "C:\DANE\Backup\DC01_20261117-220000.zip.aes" -DestinationPath "C:\Restore\DC01"
+    $pwd = Read-Host "Enter Encryption Password" -AsSecureString
+    C:\Scripts\Backup-HyperVVM\Backup-HyperVVM.ps1 -VMName "DC01" -BackupMode Cold -ZipPassword $pwd
+    Performs a Cold backup of DC01, includes restore instructions and copy logs,
+    and saves an AES-256 encrypted .zip.aes archive to C:\DANE\Backup.
+
+.EXAMPLE
+    C:\Scripts\Backup-HyperVVM\Decrypt-HyperVBackup.ps1 -ArchivePath "C:\DANE\Backup\DC01_20261117-220000.zip.aes" -DestinationPath "C:\Restore\DC01"
     Decrypts and extracts the encrypted VM backup archive for restoration.
 
 .NOTES
     Author       : Roman Pindela
     Email        : roman.pindela@gmail.com
     GitHub       : https://github.com/romanpindela
-    Version      : 1.2.0
+    Version      : 1.3.0
     Last Modified: 2026-11-18
-    Deployment   : Recommended location on Hyper-V host: C:\Scripts\Backup-HyperVVM.ps1
+    Deployment   : Recommended location on Hyper-V host: C:\Scripts\Backup-HyperVVM\Backup-HyperVVM.ps1
 #>
 
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
@@ -236,6 +249,32 @@ param (
     [switch]$SkipArchiveVerification,
 
     [Parameter()]
+    [ValidateRange(0, 3650)]
+    [int]$RetentionCount = 1,
+
+    [Parameter()]
+    [ValidateRange(0, 102400)]
+    [int]$MinValidSizeMB = 10,
+
+    [Parameter()]
+    [ValidateRange(100, 1048576)]
+    [int]$MinFreeSpaceMB = 2048,
+
+    [Parameter()]
+    [switch]$SkipDiskSpaceCheck,
+
+    [Parameter()]
+    [switch]$SkipMutex,
+
+    [Parameter()]
+    [ValidateRange(0, 3600)]
+    [int]$MutexTimeoutSeconds = 0,
+
+    [Parameter()]
+    [ValidateNotNullOrEmpty()]
+    [string]$LogDir = 'C:\Logi',
+
+    [Parameter()]
     [Alias('l', 'Log')]
     [ValidateNotNullOrEmpty()]
     [string]$LogPath,
@@ -262,7 +301,7 @@ begin {
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
 
-    $ScriptVersion = '1.2.0'
+    $ScriptVersion = '1.3.0'
     $ScriptName = 'Backup-HyperVVM'
     $RunTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 
@@ -281,10 +320,11 @@ begin {
         Write-Host 'SYNTAX:' -ForegroundColor Yellow
         Write-Host '  .\Backup-HyperVVM.ps1 -VMName <string[]> [-BackupMode Hot|Cold]' -ForegroundColor White
         Write-Host '                        [-BackupPath <string>] [-ZipPassword <SecureString>]' -ForegroundColor White
-        Write-Host '                        [-NoEncrypt] [-NoZip]' -ForegroundColor White
+        Write-Host '                        [-NoEncrypt] [-NoZip] [-RetentionCount <int>]' -ForegroundColor White
         Write-Host '                        [-CompressionLevel Optimal|Fastest|NoCompression]' -ForegroundColor White
+        Write-Host '                        [-MinValidSizeMB <int>] [-MinFreeSpaceMB <int>]' -ForegroundColor White
         Write-Host '                        [-KeepStopped] [-ForceShutdown] [-KeepUncompressed]' -ForegroundColor White
-        Write-Host '                        [-LogPath <string>] [-NoLog] [-PassThru]' -ForegroundColor White
+        Write-Host '                        [-LogDir <string>] [-LogPath <string>] [-NoLog] [-PassThru]' -ForegroundColor White
         Write-Host '  .\Backup-HyperVVM.ps1 -ListVMs [-PassThru]' -ForegroundColor White
         Write-Host '  .\Backup-HyperVVM.ps1 [-Help | -h]' -ForegroundColor White
         Write-Host ''
@@ -296,36 +336,43 @@ begin {
         Write-Host '  -NoEncrypt                  Skip AES-256 encryption & password prompt (outputs plain .zip)'
         Write-Host '  -NoZip                      Skip ZIP & encryption (outputs uncompressed VM folder)'
         Write-Host '  -CompressionLevel <enum>    Optimal, Fastest, or NoCompression (default: Optimal)'
+        Write-Host '  -RetentionCount <int>       Valid copies to keep per VM; 0 disables cleanup (default: 1)'
+        Write-Host '  -MinValidSizeMB <int>       Min size in MB for a valid backup with disks (default: 10)'
+        Write-Host '  -MinFreeSpaceMB <int>       Min free space buffer in MB above VM disk size (default: 2048)'
+        Write-Host '  -SkipDiskSpaceCheck         Bypass pre-flight disk space validation'
+        Write-Host '  -SkipMutex                  Bypass single-instance Global Mutex lock'
+        Write-Host '  -MutexTimeoutSeconds <int>  Seconds to wait for Mutex lock if busy (default: 0)'
         Write-Host '  -KeepStopped                (Cold mode) Do not restart VM after backup'
         Write-Host '  -ShutdownTimeoutSeconds     Graceful shutdown wait in seconds (default: 300)'
         Write-Host '  -ForceShutdown              Force TurnOff if graceful shutdown times out'
         Write-Host '  -KeepUncompressed           Keep staging folder after archive creation'
         Write-Host '  -SkipArchiveVerification    Skip post-compression / HMAC-SHA256 verification'
-        Write-Host '  -LogPath <string>           Custom log path (default: C:\Logs\<timestamp>-Backup-HyperVVM-*.logs)'
+        Write-Host '  -LogDir <string>            Audit log directory (default: C:\Logi)'
+        Write-Host '  -LogPath <string>           Custom log path (default: C:\Logi\<timestamp>-Backup-HyperVVM-*.log)'
         Write-Host '  -NoLog                      Disable disk logging'
         Write-Host '  -PassThru                   Output structured [PSCustomObject] results to pipeline'
         Write-Host '  -ListVMs / -List            List all Hyper-V VMs with details in a table and exit'
         Write-Host '  -Help / -h                  Display this help screen and exit'
         Write-Host ''
         Write-Host 'HOT BACKUP WITHOUT PASSWORD EXAMPLES:' -ForegroundColor Yellow
-        Write-Host '  # Hot backup compressed to unencrypted .zip (no password):' -ForegroundColor DarkGray
-        Write-Host '  C:\Scripts\Backup-HyperVVM.ps1 -VMName "WEB01" -BackupMode Hot -NoEncrypt' -ForegroundColor Green
+        Write-Host '  # Hot backup compressed to unencrypted .zip (no password, keeps 1 copy, logs in C:\Logi):' -ForegroundColor DarkGray
+        Write-Host '  C:\Scripts\Backup-HyperVVM\Backup-HyperVVM.ps1 -VMName "SQL2022" -BackupMode Hot -NoEncrypt -BackupPath "C:\DANE\Backup"' -ForegroundColor Green
         Write-Host ''
         Write-Host '  # Hot backup as uncompressed folder (no ZIP, no password):' -ForegroundColor DarkGray
-        Write-Host '  C:\Scripts\Backup-HyperVVM.ps1 -VMName "WEB01" -BackupMode Hot -NoZip' -ForegroundColor Green
+        Write-Host '  C:\Scripts\Backup-HyperVVM\Backup-HyperVVM.ps1 -VMName "WEB01" -BackupMode Hot -NoZip' -ForegroundColor Green
         Write-Host ''
         Write-Host 'SECURE PASSWORD EXAMPLES:' -ForegroundColor Yellow
         Write-Host '  # Interactive secure prompt (recommended):' -ForegroundColor DarkGray
         Write-Host '  $pwd = Read-Host "Enter Encryption Password" -AsSecureString' -ForegroundColor Green
-        Write-Host '  C:\Scripts\Backup-HyperVVM.ps1 -VMName "DC01" -BackupMode Cold -ZipPassword $pwd' -ForegroundColor Green
+        Write-Host '  C:\Scripts\Backup-HyperVVM\Backup-HyperVVM.ps1 -VMName "DC01" -BackupMode Cold -ZipPassword $pwd' -ForegroundColor Green
         Write-Host ''
         Write-Host '  # Scheduled Task (DPAPI per-user/machine encrypted secret):' -ForegroundColor DarkGray
         Write-Host '  # 1. Save once: Read-Host -AsSecureString | Export-Clixml C:\Scripts\zip.cred' -ForegroundColor DarkGray
         Write-Host '  # 2. Load:      $pwd = Import-Clixml C:\Scripts\zip.cred' -ForegroundColor Green
-        Write-Host '  C:\Scripts\Backup-HyperVVM.ps1 -VMName "APP01","DB01" -BackupMode Hot -ZipPassword $pwd' -ForegroundColor Green
+        Write-Host '  C:\Scripts\Backup-HyperVVM\Backup-HyperVVM.ps1 -VMName "APP01","DB01" -BackupMode Hot -ZipPassword $pwd' -ForegroundColor Green
         Write-Host ''
         Write-Host 'DECRYPT & RESTORE EXAMPLE:' -ForegroundColor Yellow
-        Write-Host '  C:\Scripts\Decrypt-HyperVBackup.ps1 -ArchivePath "C:\DANE\Backup\DC01_20261117-220000.zip.aes" -DestinationPath "C:\Restore\DC01"' -ForegroundColor Green
+        Write-Host '  C:\Scripts\Backup-HyperVVM\Decrypt-HyperVBackup.ps1 -ArchivePath "C:\DANE\Backup\DC01_20261117-220000.zip.aes" -DestinationPath "C:\Restore\DC01"' -ForegroundColor Green
         Write-Host ''
         Write-Host 'AUTHOR:' -ForegroundColor Yellow
         Write-Host '  Roman Pindela | roman.pindela@gmail.com | https://github.com/romanpindela' -ForegroundColor Gray
@@ -713,6 +760,219 @@ $cleanupChecklist
         }
     }
 
+    function Test-DirectoryWritePermission {
+        [CmdletBinding()]
+        param (
+            [Parameter(Mandatory = $true)]
+            [string]$DirectoryPath,
+
+            [Parameter(Mandatory = $true)]
+            [string]$Label
+        )
+
+        if (-not (Test-Path -Path $DirectoryPath -PathType Container)) {
+            throw "Permission check failed: $Label directory '$DirectoryPath' does not exist."
+        }
+
+        $probeFile = Join-Path -Path $DirectoryPath -ChildPath (".permtest_" + [guid]::NewGuid().ToString('N') + '.tmp')
+        try {
+            [System.IO.File]::WriteAllText($probeFile, 'permcheck')
+            if (-not (Test-Path -Path $probeFile -PathType Leaf)) {
+                throw "Write probe file could not be verified in '$DirectoryPath'."
+            }
+            Remove-Item -Path $probeFile -Force -ErrorAction Stop
+        }
+        catch {
+            if (Test-Path -Path $probeFile -PathType Leaf) {
+                Remove-Item -Path $probeFile -Force -ErrorAction SilentlyContinue
+            }
+            throw "Insufficient NTFS/filesystem write or delete permissions on $Label directory '$DirectoryPath': $($_.Exception.Message)"
+        }
+    }
+
+    function Test-VolumeFreeSpace {
+        [CmdletBinding()]
+        [OutputType([int64])]
+        param (
+            [Parameter(Mandatory = $true)]
+            [string]$TargetPath,
+
+            [Parameter(Mandatory = $true)]
+            [int64]$RequiredBytes,
+
+            [Parameter()]
+            [string]$GlobalLogPath,
+
+            [Parameter()]
+            [switch]$DisableDiskLog
+        )
+
+        if ($TargetPath -like '\\*') {
+            Write-Log -Message "Disk space check skipped for UNC path '$TargetPath' (ensure remote share quota/space is sufficient)." -Level 'WARN' -FilePath $GlobalLogPath -DisableDiskLog:$DisableDiskLog
+            return [int64]0
+        }
+
+        $qualifier = Split-Path -Path $TargetPath -Qualifier
+        if ([string]::IsNullOrWhiteSpace($qualifier)) {
+            throw "Cannot resolve drive qualifier for path '$TargetPath'."
+        }
+
+        $driveLetter = $qualifier.TrimEnd(':')
+        $psDrive = Get-PSDrive -Name $driveLetter -PSProvider FileSystem -ErrorAction SilentlyContinue
+        if ($null -eq $psDrive) {
+            throw "Drive '$qualifier' for path '$TargetPath' is not accessible or mounted."
+        }
+
+        $freeMB = [math]::Round(($psDrive.Free / 1MB), 2)
+        $reqMB = [math]::Round(($RequiredBytes / 1MB), 2)
+        if ($psDrive.Free -lt $RequiredBytes) {
+            throw "Insufficient free space on drive '$qualifier' for '$TargetPath' ($freeMB MB free, minimum required: $reqMB MB)."
+        }
+
+        return [int64]$psDrive.Free
+    }
+
+    function Get-BackupItemSizeBytes {
+        [CmdletBinding()]
+        [OutputType([int64])]
+        param (
+            [Parameter(Mandatory = $true)]
+            [string]$Path
+        )
+
+        if (Test-Path -Path $Path -PathType Leaf) {
+            return [int64](Get-Item -Path $Path).Length
+        }
+        if (Test-Path -Path $Path -PathType Container) {
+            $sum = (Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+            if ($null -eq $sum) { return [int64]0 }
+            return [int64]$sum
+        }
+        return [int64]0
+    }
+
+    function Test-ExportedVMPackage {
+        [CmdletBinding()]
+        param (
+            [Parameter(Mandatory = $true)]
+            [string]$StagingDirectory,
+
+            [Parameter(Mandatory = $true)]
+            [string]$VMName,
+
+            [Parameter(Mandatory = $true)]
+            [bool]$ExpectVirtualDisks
+        )
+
+        $vmSubDir = Join-Path -Path $StagingDirectory -ChildPath $VMName
+        if (-not (Test-Path -Path $vmSubDir -PathType Container)) {
+            throw "Post-export verification failed: expected VM export folder '$vmSubDir' does not exist."
+        }
+
+        $vmConfigDir = Join-Path -Path $vmSubDir -ChildPath 'Virtual Machines'
+        $configFiles = @(Get-ChildItem -Path $vmConfigDir -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Extension -in @('.vmcx', '.xml') -and $_.Length -gt 0 })
+        if ($configFiles.Count -eq 0) {
+            throw "Post-export verification failed: no non-empty .vmcx/.xml configuration file found in '$vmConfigDir'."
+        }
+
+        if ($ExpectVirtualDisks) {
+            $vhdDir = Join-Path -Path $vmSubDir -ChildPath 'Virtual Hard Disks'
+            $vhdFiles = @(Get-ChildItem -Path $vhdDir -File -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Extension -in @('.vhdx', '.vhd', '.avhdx', '.avhd') -and $_.Length -gt 0 })
+            if ($vhdFiles.Count -eq 0) {
+                throw "Post-export verification failed: VM has attached disks, but no non-empty VHD/VHDX files were found in '$vhdDir'."
+            }
+        }
+    }
+
+    function Invoke-HyperVSafeRetentionCleanup {
+        [CmdletBinding()]
+        param (
+            [Parameter(Mandatory = $true)]
+            [string]$DirectoryPath,
+
+            [Parameter(Mandatory = $true)]
+            [string]$SafeVMName,
+
+            [Parameter(Mandatory = $true)]
+            [string]$CurrentBackupPath,
+
+            [Parameter(Mandatory = $true)]
+            [int]$KeepCount,
+
+            [Parameter(Mandatory = $true)]
+            [int64]$MinimumValidBytes,
+
+            [Parameter(Mandatory = $true)]
+            [scriptblock]$LogCallback
+        )
+
+        if ($KeepCount -le 0) {
+            & $LogCallback 'Retention cleanup disabled (-RetentionCount 0). All previous backups preserved.' 'INFO'
+            return
+        }
+
+        $escapedName = [regex]::Escape($SafeVMName)
+        $pattern = "^${escapedName}_\d{8}-\d{6}(?:\.zip\.aes|\.zip)?$"
+        $resolvedCurrent = [System.IO.Path]::GetFullPath($CurrentBackupPath)
+
+        $matchingItems = @(Get-ChildItem -Path $DirectoryPath -ErrorAction SilentlyContinue | Where-Object {
+                $_.Name -notlike '_staging_*' -and $_.Name -match $pattern
+            })
+
+        $validBackups = [System.Collections.Generic.List[pscustomobject]]::new()
+        $undersizedBackups = [System.Collections.Generic.List[pscustomobject]]::new()
+
+        foreach ($item in $matchingItems) {
+            $itemBytes = Get-BackupItemSizeBytes -Path $item.FullName
+            $entry = [PSCustomObject]@{
+                FullName      = [System.IO.Path]::GetFullPath($item.FullName)
+                Name          = $item.Name
+                SizeBytes     = $itemBytes
+                LastWriteTime = $item.LastWriteTime
+                IsContainer   = $item.PSIsContainer
+            }
+
+            if ($itemBytes -ge $MinimumValidBytes) {
+                $validBackups.Add($entry)
+            }
+            else {
+                $undersizedBackups.Add($entry)
+            }
+        }
+
+        $minMB = [math]::Round(($MinimumValidBytes / 1MB), 2)
+        & $LogCallback "RETENTION AUDIT [$SafeVMName]: Found $($validBackups.Count) valid backup(s) (>= $minMB MB) and $($undersizedBackups.Count) undersized/corrupt item(s) (< $minMB MB) in '$DirectoryPath'." 'INFO'
+
+        foreach ($bad in $undersizedBackups) {
+            $badKB = [math]::Round(($bad.SizeBytes / 1KB), 2)
+            & $LogCallback "RETENTION WARNING [$SafeVMName]: '$($bad.Name)' is smaller than $minMB MB ($badKB KB) and is NOT counted as a valid backup." 'WARN'
+        }
+
+        if ($validBackups.Count -le $KeepCount) {
+            & $LogCallback "RETENTION GUARD [$SafeVMName]: Valid backup count ($($validBackups.Count)) <= retention limit ($KeepCount). No existing backups will be deleted." 'INFO'
+            return
+        }
+
+        # Always keep the newly verified backup first, then newest previous valid copies up to KeepCount
+        $orderedOthers = @($validBackups | Where-Object { $_.FullName -ine $resolvedCurrent } | Sort-Object -Property LastWriteTime -Descending)
+        $othersToKeep = [Math]::Max(0, ($KeepCount - 1))
+        $itemsToDelete = @($orderedOthers | Select-Object -Skip $othersToKeep)
+
+        foreach ($old in $itemsToDelete) {
+            if ($old.FullName -ieq $resolvedCurrent) { continue }
+            $oldSizeMB = [math]::Round(($old.SizeBytes / 1MB), 2)
+            if ($old.IsContainer) {
+                Remove-Item -Path $old.FullName -Recurse -Force -ErrorAction Stop
+            }
+            else {
+                Remove-Item -Path $old.FullName -Force -ErrorAction Stop
+            }
+            & $LogCallback "RETENTION CLEANUP [$SafeVMName]: Removed older backup '$($old.Name)' ($oldSizeMB MB, LastWriteTime: $($old.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')))." 'INFO'
+        }
+    }
+
     function Compress-BackupDirectory {
         [CmdletBinding()]
         param (
@@ -742,6 +1002,13 @@ $cleanupChecklist
                 $zipArchive = [System.IO.Compression.ZipFile]::OpenRead($DestinationZipPath)
                 if ($zipArchive.Entries.Count -eq 0) {
                     throw 'Post-compression ZIP verification failed: archive contains zero entries.'
+                }
+                $entryNames = @($zipArchive.Entries | ForEach-Object { $_.FullName })
+                $hasMeta = @($entryNames | Where-Object { $_ -like '*VM-Metadata.json' }).Count -gt 0
+                $hasRestore = @($entryNames | Where-Object { $_ -like '*RESTORE-INSTRUCTIONS.txt' }).Count -gt 0
+                $hasVmcx = @($entryNames | Where-Object { $_ -like '*.vmcx' -or $_ -like '*.xml' }).Count -gt 0
+                if (-not ($hasMeta -and $hasRestore -and $hasVmcx)) {
+                    throw 'Post-compression ZIP verification failed: archive is missing expected VM configuration or metadata entries.'
                 }
             }
             finally {
@@ -907,6 +1174,18 @@ $cleanupChecklist
             [switch]$SkipVerify,
 
             [Parameter()]
+            [int]$KeepCopies = 1,
+
+            [Parameter()]
+            [int64]$MinValidBytes = (10 * 1MB),
+
+            [Parameter()]
+            [int64]$MinFreeBytes = (2048 * 1MB),
+
+            [Parameter()]
+            [switch]$BypassDiskSpaceCheck,
+
+            [Parameter()]
             [string]$GlobalLogPath,
 
             [Parameter()]
@@ -951,6 +1230,7 @@ $cleanupChecklist
         }
 
         $wasStoppedByScript = $false
+        $backupVerified = $false
         $status = 'Success'
         $errorMessage = $null
 
@@ -969,6 +1249,52 @@ $cleanupChecklist
                     DurationSec   = 0
                     Status        = 'WhatIf'
                     Error         = $null
+                }
+            }
+
+            # Safeguard 3: Pre-flight VM state, attached disk paths, and VSS integration readiness check
+            $blockedStates = @('Starting', 'Stopping', 'Saving', 'Pausing', 'Resuming')
+            if ($originalState -in $blockedStates) {
+                throw "VM '$($vm.Name)' is in transient state '$originalState' and cannot be safely exported right now."
+            }
+
+            $attachedDisks = @(Get-VMHardDiskDrive -VMName $vm.Name -ErrorAction Stop)
+            $vmDiskBytes = [int64]0
+            foreach ($disk in $attachedDisks) {
+                if ([string]::IsNullOrWhiteSpace($disk.Path)) { continue }
+                if (-not (Test-Path -Path $disk.Path -PathType Leaf)) {
+                    throw "Virtual disk file not found for VM '$($vm.Name)': '$($disk.Path)'."
+                }
+                $vmDiskBytes += [int64](Get-Item -Path $disk.Path).Length
+            }
+            $hasVirtualDisks = ($attachedDisks.Count -gt 0 -and $vmDiskBytes -gt 0)
+            $vmDiskGB = [math]::Round(($vmDiskBytes / 1GB), 2)
+            & $addVmLog "Pre-flight VM check OK: Disks=$($attachedDisks.Count) (${vmDiskGB} GB), State=$originalState." 'INFO'
+
+            if ($Mode -eq 'Hot' -and $originalState -eq 'Running') {
+                $vssSvc = Get-VMIntegrationService -VMName $vm.Name -Name 'VSS' -ErrorAction SilentlyContinue
+                if ($null -eq $vssSvc -or -not $vssSvc.Enabled) {
+                    & $addVmLog 'Hyper-V VSS (Backup) Integration Service is disabled or unavailable on this VM; live export may be crash-consistent rather than app-consistent.' 'WARN'
+                }
+                else {
+                    & $addVmLog "Hyper-V VSS Integration Service check OK (Enabled: $($vssSvc.Enabled), PrimaryStatus: $($vssSvc.PrimaryOperationalStatus))." 'INFO'
+                }
+            }
+
+            # Safeguard 4: Dynamic pre-flight free disk space check
+            if (-not $BypassDiskSpaceCheck) {
+                $requiredFreeBytes = [Math]::Max($MinFreeBytes, ($vmDiskBytes + $MinFreeBytes))
+                $freeBytes = Test-VolumeFreeSpace -TargetPath $TargetBackupDir -RequiredBytes $requiredFreeBytes -GlobalLogPath $GlobalLogPath -DisableDiskLog:$DisableDiskLog
+                $freeGB = [math]::Round(($freeBytes / 1GB), 2)
+                $reqGB = [math]::Round(($requiredFreeBytes / 1GB), 2)
+                & $addVmLog "Disk space check OK on target volume ($freeGB GB free >= $reqGB GB required)." 'INFO'
+
+                if ($BackupFormat -ne 'Folder' -and $freeBytes -gt 0) {
+                    $conservativeBytes = [int64]($vmDiskBytes * 1.5) + $MinFreeBytes
+                    if ($freeBytes -lt $conservativeBytes) {
+                        $consGB = [math]::Round(($conservativeBytes / 1GB), 2)
+                        & $addVmLog "Free space ($freeGB GB) is below recommended 1.5x staging+archive headroom ($consGB GB). Backup will proceed if compression ratio fits." 'WARN'
+                    }
                 }
             }
 
@@ -1005,6 +1331,10 @@ $cleanupChecklist
             Export-VM -Name $vm.Name -Path $stagingDir -ErrorAction Stop
             & $addVmLog 'Export-VM completed successfully.' 'SUCCESS'
 
+            # Safeguard 5: Post-export structural & VHDX completeness verification
+            Test-ExportedVMPackage -StagingDirectory $stagingDir -VMName $vm.Name -ExpectVirtualDisks:$hasVirtualDisks
+            & $addVmLog 'Post-export structural check OK (.vmcx/.xml and VHDX files verified).' 'INFO'
+
             # Step 3: Restart VM immediately after export if Cold mode stopped it
             if ($wasStoppedByScript -and -not $LeaveStopped) {
                 & $addVmLog 'Restarting VM after Cold export...' 'INFO'
@@ -1037,7 +1367,7 @@ $cleanupChecklist
                 Copy-Item -Path $GlobalLogPath -Destination $embeddedGlobalLog -Force
             }
 
-            # Step 6: Package output according to selected format
+            # Step 6 & Safeguard 7: Package output & verify archive integrity
             switch ($BackupFormat) {
                 'Folder' {
                     & $addVmLog "Uncompressed backup folder ready at '$archiveFullPath' (no ZIP, no password)." 'SUCCESS'
@@ -1048,7 +1378,7 @@ $cleanupChecklist
                         -DestinationZipPath $archiveFullPath `
                         -Level $Level `
                         -VerifyZip:(-not $SkipVerify)
-                    & $addVmLog 'Unencrypted ZIP archive created successfully.' 'SUCCESS'
+                    & $addVmLog 'Unencrypted ZIP archive created and verified successfully.' 'SUCCESS'
                 }
                 'ZipAES' {
                     & $addVmLog "Creating native .NET AES-256 encrypted archive '$archiveFullPath' (Compression: $Level)..." 'INFO'
@@ -1061,16 +1391,47 @@ $cleanupChecklist
                 }
             }
 
+            # Safeguard 6: Minimum valid backup size enforcement
+            $outputBytes = Get-BackupItemSizeBytes -Path $archiveFullPath
+            $outputSizeMB = [math]::Round(($outputBytes / 1MB), 2)
+            $effectiveMinBytes = if ($hasVirtualDisks) { $MinValidBytes } else { [int64]1 }
+            if ($outputBytes -lt $effectiveMinBytes) {
+                $minThresholdMB = [math]::Round(($effectiveMinBytes / 1MB), 2)
+                throw "Backup output '$archiveFullPath' ($outputSizeMB MB) is smaller than the minimum valid threshold ($minThresholdMB MB). Aborting before retention cleanup."
+            }
+            $backupVerified = $true
+            & $addVmLog "Minimum size validation OK ($outputSizeMB MB >= $([math]::Round(($effectiveMinBytes / 1MB), 2)) MB)." 'INFO'
+
             # Step 7: Cleanup temporary staging folder (only when archived to .zip / .zip.aes)
             if ($BackupFormat -ne 'Folder' -and -not $RetainStaging -and (Test-Path -Path $stagingDir)) {
                 Remove-Item -Path $stagingDir -Recurse -Force
                 & $addVmLog 'Removed temporary staging directory.' 'INFO'
             }
+
+            # Step 8 / Safeguard 8: Backup-first count- & size-guarded retention cleanup
+            Invoke-HyperVSafeRetentionCleanup -DirectoryPath $TargetBackupDir `
+                -SafeVMName $safeVmName `
+                -CurrentBackupPath $archiveFullPath `
+                -KeepCount $KeepCopies `
+                -MinimumValidBytes $effectiveMinBytes `
+                -LogCallback $addVmLog
         }
         catch {
             $status = 'Failed'
             $errorMessage = $_.Exception.Message
             & $addVmLog "Backup failed: $errorMessage" 'ERROR'
+
+            # Safeguard 8b: Clean up incomplete/unverified artifacts from THIS failed session
+            if (-not $backupVerified) {
+                if ($BackupFormat -ne 'Folder' -and (Test-Path -Path $stagingDir)) {
+                    Remove-Item -Path $stagingDir -Recurse -Force -ErrorAction SilentlyContinue
+                    & $addVmLog "CLEANUP ON FAILURE: Removed incomplete staging directory '$stagingDir'." 'WARN'
+                }
+                if (Test-Path -Path $archiveFullPath) {
+                    Remove-Item -Path $archiveFullPath -Recurse -Force -ErrorAction SilentlyContinue
+                    & $addVmLog "CLEANUP ON FAILURE: Removed unverified/incomplete backup artifact '$archiveFullPath'." 'WARN'
+                }
+            }
             throw
         }
         finally {
@@ -1089,18 +1450,7 @@ $cleanupChecklist
             $sw.Stop()
         }
 
-        $archiveSizeMB = if (Test-Path -Path $archiveFullPath -PathType Leaf) {
-            [math]::Round(((Get-Item -Path $archiveFullPath).Length / 1MB), 2)
-        }
-        elseif (Test-Path -Path $archiveFullPath -PathType Container) {
-            $folderBytes = (Get-ChildItem -Path $archiveFullPath -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
-            if ($null -eq $folderBytes) { $folderBytes = 0 }
-            [math]::Round(($folderBytes / 1MB), 2)
-        }
-        else {
-            0
-        }
-
+        $archiveSizeMB = [math]::Round(((Get-BackupItemSizeBytes -Path $archiveFullPath) / 1MB), 2)
         $finalState = (Get-VM -Name $vm.Name).State.ToString()
 
         return [PSCustomObject]@{
@@ -1189,9 +1539,9 @@ $cleanupChecklist
         Add-Type -AssemblyName System.IO.Compression.FileSystem
     }
 
-    # Resolve default log path
+    # Resolve default log path (C:\Logi by default)
     if ([string]::IsNullOrWhiteSpace($LogPath)) {
-        $LogPath = "C:\Logs\${RunTimestamp}-${ScriptName}-${env:COMPUTERNAME}-${env:USERNAME}.logs"
+        $LogPath = Join-Path -Path $LogDir -ChildPath "${RunTimestamp}-${ScriptName}-${env:COMPUTERNAME}-${env:USERNAME}.log"
     }
 
     $formatSummary = switch ($backupFormat) {
@@ -1200,15 +1550,35 @@ $cleanupChecklist
         'Folder' { 'Uncompressed Folder (No ZIP, No Password)' }
     }
     $compressionSummary = if ($backupFormat -eq 'Folder') { 'None (NoZip)' } else { $CompressionLevel }
+    $minValidBytes = [int64]$MinValidSizeMB * 1MB
+    $minFreeBytes = [int64]$MinFreeSpaceMB * 1MB
 
     Write-Log -Message "=== Starting $ScriptName v$ScriptVersion ($formatSummary) ===" -Level 'INFO' -FilePath $LogPath -DisableDiskLog:$NoLog
     Write-Log -Message "BackupMode: $BackupMode | Format: $backupFormat | BackupPath: $BackupPath | CompressionLevel: $compressionSummary" -Level 'INFO' -FilePath $LogPath -DisableDiskLog:$NoLog
+    Write-Log -Message "Safeguards: RetentionCount=$RetentionCount | MinValidSize=${MinValidSizeMB}MB | MinFreeSpace=${MinFreeSpaceMB}MB | LogPath=$LogPath" -Level 'INFO' -FilePath $LogPath -DisableDiskLog:$NoLog
 
     # Verify Hyper-V module availability
     if (-not (Get-Module -ListAvailable -Name 'Hyper-V')) {
         throw 'The Hyper-V PowerShell module is not installed on this machine. Install RSAT-Hyper-V-Tools or the Hyper-V role.'
     }
     Import-Module -Name 'Hyper-V' -ErrorAction Stop
+
+    # Safeguard 2b: Verify Hyper-V Virtual Machine Management service (vmms) is Running
+    $vmmsService = Get-Service -Name 'vmms' -ErrorAction SilentlyContinue
+    if ($null -eq $vmmsService) {
+        throw 'Hyper-V Virtual Machine Management service (vmms) was not found on this host.'
+    }
+    if ($vmmsService.Status -ne 'Running') {
+        if ($PSCmdlet.ShouldProcess('vmms', 'Start Hyper-V Virtual Machine Management service')) {
+            Write-Log -Message "Hyper-V service 'vmms' is '$($vmmsService.Status)'. Attempting to start..." -Level 'WARN' -FilePath $LogPath -DisableDiskLog:$NoLog
+            Start-Service -Name 'vmms' -ErrorAction Stop
+            $vmmsService.WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+            Write-Log -Message "Hyper-V service 'vmms' started successfully." -Level 'SUCCESS' -FilePath $LogPath -DisableDiskLog:$NoLog
+        }
+    }
+    else {
+        Write-Log -Message "Hyper-V service 'vmms' status check OK (Running)." -Level 'INFO' -FilePath $LogPath -DisableDiskLog:$NoLog
+    }
 
     # Read-only VM inventory listing mode
     if ($ListVMs) {
@@ -1228,11 +1598,24 @@ $cleanupChecklist
         exit 0
     }
 
-    # Ensure backup directory exists and copy Decrypt-HyperVBackup.ps1 when encryption is enabled
+    # Ensure backup directory exists and verify write/delete permissions (Safeguard 2c)
     if (-not (Test-Path -Path $BackupPath)) {
         if ($PSCmdlet.ShouldProcess($BackupPath, 'Create backup destination directory')) {
             New-Item -Path $BackupPath -ItemType Directory -Force | Out-Null
             Write-Log -Message "Created backup destination directory: $BackupPath" -Level 'INFO' -FilePath $LogPath -DisableDiskLog:$NoLog
+        }
+    }
+
+    if (-not $WhatIfPreference) {
+        if (Test-Path -Path $BackupPath -PathType Container) {
+            Test-DirectoryWritePermission -DirectoryPath $BackupPath -Label 'BackupPath'
+            Write-Log -Message "Write/delete permission check OK on '$BackupPath'." -Level 'INFO' -FilePath $LogPath -DisableDiskLog:$NoLog
+        }
+        if (-not $NoLog) {
+            $resolvedLogDir = Split-Path -Path $LogPath -Parent
+            if (-not [string]::IsNullOrWhiteSpace($resolvedLogDir) -and (Test-Path -Path $resolvedLogDir -PathType Container)) {
+                Test-DirectoryWritePermission -DirectoryPath $resolvedLogDir -Label 'LogDir'
+            }
         }
     }
 
@@ -1300,41 +1683,80 @@ end {
     $index = 0
     $hasFailures = $false
 
-    foreach ($targetVm in $vmQueue) {
-        $index++
-        $pct = [int](($index / $total) * 100)
-        Write-Progress -Activity 'Backing up Hyper-V Virtual Machines' -Status "Processing $targetVm ($index of $total)" -PercentComplete $pct
+    # Safeguard 1: Single-instance execution lock (Global Named Mutex)
+    $mutex = $null
+    $mutexAcquired = $false
+    $mutexName = 'Global\Backup-HyperVVM-Lock'
 
-        try {
-            $result = Backup-SingleHyperVVM -Name $targetVm `
-                -Mode $BackupMode `
-                -BackupFormat $backupFormat `
-                -TargetBackupDir $BackupPath `
-                -Password $ZipPassword `
-                -Level $CompressionLevel `
-                -LeaveStopped:$KeepStopped `
-                -StopTimeoutSec $ShutdownTimeoutSeconds `
-                -ForceStop:$ForceShutdown `
-                -RetainStaging:$KeepUncompressed `
-                -SkipVerify:$SkipArchiveVerification `
-                -GlobalLogPath $LogPath `
-                -DisableDiskLog:$NoLog
-            $results.Add($result)
+    try {
+        if (-not $SkipMutex -and -not $WhatIfPreference) {
+            $mutex = [System.Threading.Mutex]::new($false, $mutexName)
+            $waitMs = $MutexTimeoutSeconds * 1000
+            try {
+                $mutexAcquired = $mutex.WaitOne($waitMs, $false)
+            }
+            catch [System.Threading.AbandonedMutexException] {
+                $mutexAcquired = $true
+                Write-Log -Message "Acquired abandoned Global Mutex '$mutexName' from a previously crashed run." -Level 'WARN' -FilePath $LogPath -DisableDiskLog:$NoLog
+            }
+
+            if (-not $mutexAcquired) {
+                throw "Another instance of Backup-HyperVVM is already running (Mutex '$mutexName' is locked)."
+            }
+            Write-Log -Message "Single-instance Mutex lock acquired ('$mutexName')." -Level 'INFO' -FilePath $LogPath -DisableDiskLog:$NoLog
         }
-        catch {
-            $hasFailures = $true
-            $results.Add([PSCustomObject]@{
-                    VMName        = $targetVm
-                    BackupMode    = $BackupMode
-                    Format        = $backupFormat
-                    OriginalState = 'Unknown'
-                    FinalState    = 'Unknown'
-                    ArchivePath   = $null
-                    ArchiveSizeMB = 0
-                    DurationSec   = 0
-                    Status        = 'Failed'
-                    Error         = $_.Exception.Message
-                })
+
+        foreach ($targetVm in $vmQueue) {
+            $index++
+            $pct = [int](($index / $total) * 100)
+            Write-Progress -Activity 'Backing up Hyper-V Virtual Machines' -Status "Processing $targetVm ($index of $total)" -PercentComplete $pct
+
+            try {
+                $result = Backup-SingleHyperVVM -Name $targetVm `
+                    -Mode $BackupMode `
+                    -BackupFormat $backupFormat `
+                    -TargetBackupDir $BackupPath `
+                    -Password $ZipPassword `
+                    -Level $CompressionLevel `
+                    -LeaveStopped:$KeepStopped `
+                    -StopTimeoutSec $ShutdownTimeoutSeconds `
+                    -ForceStop:$ForceShutdown `
+                    -RetainStaging:$KeepUncompressed `
+                    -SkipVerify:$SkipArchiveVerification `
+                    -KeepCopies $RetentionCount `
+                    -MinValidBytes $minValidBytes `
+                    -MinFreeBytes $minFreeBytes `
+                    -BypassDiskSpaceCheck:$SkipDiskSpaceCheck `
+                    -GlobalLogPath $LogPath `
+                    -DisableDiskLog:$NoLog
+                $results.Add($result)
+            }
+            catch {
+                $hasFailures = $true
+                $results.Add([PSCustomObject]@{
+                        VMName        = $targetVm
+                        BackupMode    = $BackupMode
+                        Format        = $backupFormat
+                        OriginalState = 'Unknown'
+                        FinalState    = 'Unknown'
+                        ArchivePath   = $null
+                        ArchiveSizeMB = 0
+                        DurationSec   = 0
+                        Status        = 'Failed'
+                        Error         = $_.Exception.Message
+                    })
+            }
+        }
+    }
+    finally {
+        if ($mutexAcquired -and $null -ne $mutex) {
+            try {
+                $mutex.ReleaseMutex()
+            }
+            catch {}
+        }
+        if ($null -ne $mutex) {
+            $mutex.Dispose()
         }
     }
 
